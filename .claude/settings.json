@@ -1,0 +1,77 @@
+{
+  "projectType": "frontend",
+  "name": "Solana Academy Platform",
+  "description": "Interactive learning platform for Solana development",
+  "repository": "https://github.com/solanabr/superteam-academy",
+  
+  "permissions": {
+    "canCreateFiles": true,
+    "canEditFiles": true,
+    "canDeleteFiles": false,
+    "canRunCommands": true,
+    "canAccessEnvironmentVariables": true
+  },
+  
+  "defaultModel": "claude-3-5-sonnet-20241022",
+  "hooks": {
+    "beforeCommit": [
+      "npm run type-check",
+      "npm run lint",
+      "npm run build"
+    ]
+  },
+  
+  "skills": [
+    ".claude/skills/SKILL.md",
+    ".claude/skills/frontend-development.md"
+  ],
+  
+  "rules": [
+    ".claude/rules/typescript.md",
+    ".claude/rules/react.md"
+  ],
+  
+  "commands": [
+    ".claude/commands/build-and-test.sh",
+    ".claude/commands/commit-guide.md"
+  ],
+  
+  "agents": [
+    ".claude/agents/component-engineer.md",
+    ".claude/agents/tech-docs-writer.md"
+  ],
+  
+  "documentation": {
+    "specification": "docs/SPECIFICATION.md",
+    "architecture": "docs/ARCHITECTURE.md",
+    "setup": "docs/QUICKSTART.md"
+  },
+  
+  "developmentEnvironment": {
+    "nodeVersion": "20",
+    "packageManager": "npm",
+    "devServer": "npm run dev",
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "typeCheckCommand": "npm run type-check",
+    "lintCommand": "npm run lint"
+  },
+  
+  "deploymentConfig": {
+    "platform": "Vercel",
+    "environments": {
+      "development": {
+        "url": "http://localhost:3000",
+        "rpc": "http://localhost:8899"
+      },
+      "staging": {
+        "url": "https://staging.academy.superteam.io",
+        "rpc": "https://api.devnet.solana.com"
+      },
+      "production": {
+        "url": "https://academy.superteam.io",
+        "rpc": "https://api.helius.xyz"
+      }
+    }
+  }
+}
