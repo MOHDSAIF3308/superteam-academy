@@ -15,6 +15,13 @@ export interface CourseService {
   enrollCourse(userId: string, courseId: string): Promise<void>
   getEnrollments(userId: string): Promise<Enrollment[]>
   getEnrollment(userId: string, courseId: string): Promise<Enrollment | null>
+  submitChallenge(
+    userId: string,
+    courseId: string,
+    lessonId: string,
+    code: string
+  ): Promise<{ success: boolean; xpAwarded: number; message: string }>
+  getLesson(courseId: string, lessonId: string): Promise<any>
 }
 
 /**
@@ -126,6 +133,7 @@ const LEARNING_PATHS: LearningPath[] = [
 
 export class LocalCourseService implements CourseService {
   private enrollments = new Map<string, Enrollment[]>()
+  private baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
 
   async getCourses(filters?: {
     difficulty?: string
@@ -187,9 +195,54 @@ export class LocalCourseService implements CourseService {
     const enrollments = await this.getEnrollments(userId)
     return enrollments.find((e) => e.courseId === courseId) || null
   }
-}
 
-// Singleton instance
+  async submitChallenge(
+    userId: string,
+    courseId: string,
+    lessonId: string,
+    code: string
+  ): Promise<{ success: boolean; xpAwarded: number; message: string }> {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/courses/${courseId}/lessons/${lessonId}/submit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, code }),
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(`Submission failed: ${response.statusText}`)
+      }
+
+      return response.json()
+    } catch (error) {
+      return {
+        success: false,
+        xpAwarded: 0,
+        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      }
+    }
+  }
+
+  async getLesson(courseId: string, lessonId: string): Promise<any> {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/courses/${courseId}/lessons/${lessonId}`
+      )
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch lesson: ${response.statusText}`)
+      }
+
+      return response.json()
+    } catch (error) {
+      console.error('Failed to load lesson:', error)
+      return null
+    }
+  }
+}
 let courseServiceInstance: LocalCourseService | null = null
 
 export function getCourseServiceInstance(): LocalCourseService {

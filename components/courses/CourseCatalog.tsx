@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CourseCard } from './CourseCard'
 import { Input } from '@/components/ui'
 import { Course } from '@/lib/types'
 import { useI18n } from '@/lib/hooks/useI18n'
+import { useSession } from 'next-auth/react'
 
 interface CourseCatalogProps {
   courses: Course[]
@@ -12,9 +13,27 @@ interface CourseCatalogProps {
 
 export function CourseCatalog({ courses }: CourseCatalogProps) {
   const { t } = useI18n()
+  const { data: session } = useSession()
   const [search, setSearch] = useState('')
   const [difficulty, setDifficulty] = useState<string>('')
   const [track, setTrack] = useState<string>('')
+  const [enrollments, setEnrollments] = useState<Set<string>>(new Set())
+
+  // Fetch user enrollments only if signed in
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setEnrollments(new Set())
+      return
+    }
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${session.user.id}/enrollments`)
+      .then(r => r.json())
+      .then(data => {
+        const courseIds = new Set(data.map((e: any) => e.courseId))
+        setEnrollments(courseIds)
+      })
+      .catch(err => console.error('Failed to fetch enrollments:', err))
+  }, [session?.user?.id])
 
   const filteredCourses = courses.filter((course) => {
     const matchesSearch =
@@ -66,7 +85,11 @@ export function CourseCatalog({ courses }: CourseCatalogProps) {
       {/* Course Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredCourses.map((course) => (
-          <CourseCard key={course.id} course={course} />
+          <CourseCard 
+            key={course.id} 
+            course={course} 
+            isEnrolled={enrollments.has(course.id)}
+          />
         ))}
       </div>
 

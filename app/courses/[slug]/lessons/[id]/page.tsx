@@ -1,10 +1,10 @@
 'use client'
 
 import { useI18n } from '@/lib/hooks/useI18n'
-import { Button, Card, ResizablePanel } from '@/components/ui'
+import { Button, Card } from '@/components/ui'
 import { ProgressBar } from '@/components/dashboard'
 import { ChallengeRunner } from '@/components/editor'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { Lesson } from '@/lib/types'
 
@@ -168,129 +168,130 @@ export default function LessonPage({ params }: LessonPageProps) {
   }
 
   return (
-    <main className="min-h-screen py-12">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <main className="min-h-screen py-12 bg-gray-50 dark:bg-inherit">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <Link href={`/courses/${params.slug}`} className="text-neon-cyan hover:text-neon-cyan/70 mb-4 inline-block">
+          <Link href={`/courses/${params.slug}`} className="text-neon-cyan hover:text-neon-cyan/70 mb-4 inline-block text-sm">
             ← {t('common.back')}
           </Link>
 
-          <h1 className="text-3xl font-display font-bold text-white mb-2">{lesson.title}</h1>
-          <p className="text-gray-400 mb-4">{lesson.description}</p>
+          <div className="mb-6">
+            <h1 className="text-4xl font-display font-bold text-white mb-2">{lesson.title}</h1>
+            <p className="text-gray-400">{lesson.description}</p>
+          </div>
 
           <ProgressBar value={40} showLabel />
         </div>
 
-        {/* Split-Pane Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 min-h-[calc(100vh-300px)] bg-terminal-surface border border-terminal-border rounded-lg overflow-hidden">
-          {lesson.challenge ? (
-            <ResizablePanel
-              initialLeftWidth={50}
-              minLeftWidth={35}
-              minRightWidth={35}
-              left={
-                <div className="overflow-auto p-6 space-y-6 border-r border-terminal-border">
-                  {/* Content Card */}
-                  <Card>
-                    <div className="prose prose-invert max-w-none">
-                      <div
-                        className="text-gray-300 space-y-4"
-                        dangerouslySetInnerHTML={{
-                          __html: lesson.content?.replace(/##/g, '<h2 class="text-xl font-bold text-neon-cyan mt-6 mb-2">').replace(/^#/gm, '<h1 class="text-2xl font-bold text-neon-cyan mt-4 mb-2">') || '',
-                        }}
-                      />
-                    </div>
+        {/* Lesson Content */}
+        {lesson.challenge ? (
+          // Challenge Layout - Split Pane on Desktop, Stacked on Mobile
+          <div className="flex flex-col lg:flex-row gap-6 h-auto lg:h-[calc(100vh-350px)]">
+            {/* Left Panel - Content */}
+            <div className="flex-1 flex flex-col min-w-0 lg:border-r lg:border-terminal-border lg:pr-6">
+              <div className="flex-1 overflow-auto space-y-6">
+                {/* Content Card */}
+                <Card className="flex-shrink-0">
+                  <div className="prose prose-invert max-w-none">
+                    <div
+                      className="text-gray-300 space-y-4"
+                      dangerouslySetInnerHTML={{
+                        __html: lesson.content?.replace(/##/g, '<h2 class="text-xl font-bold text-neon-cyan mt-6 mb-2">').replace(/^#/gm, '<h1 class="text-2xl font-bold text-neon-cyan mt-4 mb-2">') || '',
+                      }}
+                    />
+                  </div>
 
-                    {/* Hints */}
-                    {lesson.challenge?.hints && (
-                      <div className="mt-8 border-t border-terminal-border pt-6">
-                        <button
-                          onClick={() => setShowHints(!showHints)}
-                          className="text-neon-cyan hover:text-neon-cyan/70 font-semibold flex items-center gap-2"
-                        >
-                          <span>{showHints ? '▼' : '▶'}</span>
-                          {t('lesson.hints')}
-                        </button>
-                        {showHints && (
-                          <ul className="mt-4 space-y-2 text-gray-300">
-                            {lesson.challenge.hints.map((hint, idx) => (
-                              <li key={idx} className="flex gap-3">
-                                <span className="text-neon-yellow">→</span>
-                                <span>{hint}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Mark Complete */}
+                  {/* Hints */}
+                  {lesson.challenge?.hints && (
                     <div className="mt-8 border-t border-terminal-border pt-6">
-                      <Button
-                        variant={completed ? 'secondary' : 'primary'}
-                        onClick={handleCompleteLesson}
-                        className="w-full"
+                      <button
+                        onClick={() => setShowHints(!showHints)}
+                        className="text-neon-cyan hover:text-neon-cyan/70 font-semibold flex items-center gap-2"
                       >
-                        {completed ? '✓ ' : ''}{t('lesson.markComplete')} (+{lesson.xpReward} XP)
-                      </Button>
+                        <span>{showHints ? '▼' : '▶'}</span>
+                        {t('lesson.hints')}
+                      </button>
+                      {showHints && (
+                        <ul className="mt-4 space-y-2 text-gray-300 text-sm">
+                          {lesson.challenge.hints.map((hint, idx) => (
+                            <li key={idx} className="flex gap-3">
+                              <span className="text-neon-yellow">→</span>
+                              <span>{hint}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                  </Card>
-                </div>
-              }
-              right={
-                <div className="overflow-auto p-6">
-                  <ChallengeRunner
-                    language="rust"
-                    starterCode={lesson.challenge.starterCode}
-                    testCases={lesson.challenge.testCases}
-                    solutionCode={lesson.challenge.solutionCode}
-                    onComplete={() => {
-                      handleCompleteLesson();
-                    }}
-                  />
-                </div>
-              }
-            />
-          ) : (
-            // Non-challenge lesson layout
-            <div className="lg:col-span-4 p-6 overflow-auto space-y-6">
-              <Card>
-                <div className="prose prose-invert max-w-none">
-                  <div
-                    className="text-gray-300 space-y-4"
-                    dangerouslySetInnerHTML={{
-                      __html: lesson.content?.replace(/##/g, '<h2 class="text-xl font-bold text-neon-cyan mt-6 mb-2">').replace(/^#/gm, '<h1 class="text-2xl font-bold text-neon-cyan mt-4 mb-2">') || '',
-                    }}
-                  />
-                </div>
+                  )}
+                </Card>
+              </div>
 
-                {/* Mark Complete */}
-                <div className="mt-8 border-t border-terminal-border pt-6">
-                  <Button
-                    variant={completed ? 'secondary' : 'primary'}
-                    onClick={handleCompleteLesson}
-                    className="w-full"
-                  >
-                    {completed ? '✓ ' : ''}{t('lesson.markComplete')} (+{lesson.xpReward} XP)
-                  </Button>
-                </div>
-              </Card>
-
-              {/* Navigation */}
-              <Card>
-                <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" className="flex-1">
-                    {t('lesson.previousLesson')}
-                  </Button>
-                  <Button variant="secondary" size="sm" className="flex-1">
-                    {t('lesson.nextLesson')}
-                  </Button>
-                </div>
-              </Card>
+              {/* Mark Complete - Sticky at bottom on mobile */}
+              <div className="mt-6 border-t border-terminal-border pt-6 flex-shrink-0">
+                <Button
+                  variant={completed ? 'secondary' : 'primary'}
+                  onClick={handleCompleteLesson}
+                  className="w-full"
+                >
+                  {completed ? '✓ ' : ''}{t('lesson.markComplete')} (+{lesson.xpReward} XP)
+                </Button>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Right Panel - Code Editor/Challenge */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <div className="flex-1 overflow-auto">
+                <ChallengeRunner
+                  language="rust"
+                  starterCode={lesson.challenge.starterCode}
+                  testCases={lesson.challenge.testCases}
+                  solutionCode={lesson.challenge.solutionCode}
+                  onComplete={() => {
+                    handleCompleteLesson();
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          // Non-challenge lesson layout - Full width
+          <div className="space-y-6">
+            <Card>
+              <div className="prose prose-invert max-w-none">
+                <div
+                  className="text-gray-300 space-y-4"
+                  dangerouslySetInnerHTML={{
+                    __html: lesson.content?.replace(/##/g, '<h2 class="text-xl font-bold text-neon-cyan mt-6 mb-2">').replace(/^#/gm, '<h1 class="text-2xl font-bold text-neon-cyan mt-4 mb-2">') || '',
+                  }}
+                />
+              </div>
+
+              {/* Mark Complete */}
+              <div className="mt-8 border-t border-terminal-border pt-6">
+                <Button
+                  variant={completed ? 'secondary' : 'primary'}
+                  onClick={handleCompleteLesson}
+                  className="w-full"
+                >
+                  {completed ? '✓ ' : ''}{t('lesson.markComplete')} (+{lesson.xpReward} XP)
+                </Button>
+              </div>
+            </Card>
+
+            {/* Navigation */}
+            <Card>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" className="flex-1">
+                  {t('lesson.previousLesson')}
+                </Button>
+                <Button variant="secondary" size="sm" className="flex-1">
+                  {t('lesson.nextLesson')}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     </main>
   )

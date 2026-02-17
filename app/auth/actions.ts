@@ -1,11 +1,11 @@
 'use server'
 
-import { signIn } from 'next-auth/react'
+import { redirect } from 'next/navigation'
 
 export async function signInWithGoogle() {
-  await signIn('google', { redirectTo: '/dashboard' })
+  redirect('/api/auth/signin/google?callbackUrl=/dashboard')
 }
 
 export async function signInWithGitHub() {
-  await signIn('github', { redirectTo: '/dashboard' })
+  redirect('/api/auth/signin/github?callbackUrl=/dashboard')
 }

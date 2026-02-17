@@ -1,2 +1,8 @@
 export { useI18n, I18nProvider } from './useI18n'
 export { useLearningProgress } from './useLearningProgress'
+export { useAuth, AuthProvider } from './useAuth'
+export { useProgress, useAchievements, useLeaderboard, useUserRank } from './useProgress'
+export { useTheme } from './useTheme'
+export { useWallet } from './useWallet'
+export { useProgram } from './useProgram'
+export { useGamification } from './useGamification'

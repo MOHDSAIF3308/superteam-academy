@@ -1,63 +1,17 @@
 'use client'
 
 import { useI18n } from '@/lib/hooks/useI18n'
+import { useAuth } from '@/lib/hooks/useAuth'
+import { useLeaderboard, useUserRank } from '@/lib/hooks/useProgress'
 import { Card, CardContent, CardHeader } from '@/components/ui'
-import { useState, useEffect } from 'react'
-import { LeaderboardEntry } from '@/lib/types'
-
-// Mock leaderboard data
-const MOCK_LEADERBOARD: LeaderboardEntry[] = [
-  {
-    rank: 1,
-    userId: 'user-1',
-    username: 'SolanaWizard',
-    totalXp: 15420,
-    level: 12,
-    currentStreak: 42,
-    coursesCompleted: 8,
-  },
-  {
-    rank: 2,
-    userId: 'user-2',
-    username: 'AnchorMaster',
-    totalXp: 14280,
-    level: 11,
-    currentStreak: 38,
-    coursesCompleted: 7,
-  },
-  {
-    rank: 3,
-    userId: 'user-3',
-    username: 'RustBuilder',
-    totalXp: 12950,
-    level: 11,
-    currentStreak: 35,
-    coursesCompleted: 6,
-  },
-  {
-    rank: 4,
-    userId: 'user-4',
-    username: 'BlockchainDev',
-    totalXp: 11200,
-    level: 10,
-    currentStreak: 28,
-    coursesCompleted: 5,
-  },
-  {
-    rank: 5,
-    userId: 'user-5',
-    username: 'CryptoNinja',
-    totalXp: 9850,
-    level: 9,
-    currentStreak: 21,
-    coursesCompleted: 4,
-  },
-]
+import { useState } from 'react'
 
 export default function LeaderboardPage() {
   const { t } = useI18n()
-  const [timeframe, setTimeframe] = useState<'weekly' | 'monthly' | 'alltime'>('alltime')
-  const [leaderboard, setLeaderboard] = useState(MOCK_LEADERBOARD)
+  const { user } = useAuth()
+  const { leaderboard, isLoading } = useLeaderboard()
+  const { userRank, isLoading: rankLoading } = useUserRank(user?.id || '')
+  const [timeframe] = useState<'weekly' | 'monthly' | 'alltime'>('alltime')
 
   return (
     <main className="min-h-screen py-12 bg-gray-50 dark:bg-inherit">
@@ -69,16 +23,16 @@ export default function LeaderboardPage() {
           <p className="text-gray-600 dark:text-gray-400">Compete with developers worldwide and climb the ranks</p>
         </div>
 
-        {/* Timeframe Tabs */}
+        {/* Timeframe Tabs - Coming Soon */}
         <div className="flex gap-2 mb-8">
           {(['weekly', 'monthly', 'alltime'] as const).map((tf) => (
             <button
               key={tf}
-              onClick={() => setTimeframe(tf)}
+              disabled={tf !== 'alltime'}
               className={`px-6 py-2 rounded-lg font-semibold transition-colors ${
                 timeframe === tf
                   ? 'bg-blue-600 dark:bg-neon-cyan text-white dark:text-terminal-bg'
-                  : 'bg-gray-100 dark:bg-terminal-surface border border-gray-300 dark:border-terminal-border text-gray-700 dark:text-gray-300 hover:border-blue-600 dark:hover:border-neon-cyan'
+                  : 'bg-gray-100 dark:bg-terminal-surface border border-gray-300 dark:border-terminal-border text-gray-700 dark:text-gray-300 hover:border-blue-600 dark:hover:border-neon-cyan disabled:opacity-50 disabled:cursor-not-allowed'
               }`}
             >
               {tf === 'weekly'
@@ -90,59 +44,107 @@ export default function LeaderboardPage() {
           ))}
         </div>
 
+        {/* User's Current Rank */}
+        {user && !rankLoading && userRank && (
+          <Card className="mb-8 border-2 border-blue-600 dark:border-neon-cyan">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Your Rank</p>
+                  <p className="text-3xl font-bold text-blue-600 dark:text-neon-cyan"># {userRank.rank}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{user.totalXP.toLocaleString()} XP</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Level {user.level}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Leaderboard Table */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-display font-bold text-gray-900 dark:text-white">Top Developers</h2>
-              <span className="text-sm text-gray-600 dark:text-gray-400">{leaderboard.length} developers</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                {isLoading ? 'Loading...' : `${leaderboard.length} developers`}
+              </span>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-300 dark:border-terminal-border text-left text-sm text-gray-600 dark:text-gray-400">
-                    <th className="pb-3 px-3">{t('leaderboard.rank')}</th>
-                    <th className="pb-3 px-3">{t('leaderboard.username')}</th>
-                    <th className="pb-3 px-3 text-right">{t('leaderboard.xp')}</th>
-                    <th className="pb-3 px-3 text-right">{t('leaderboard.level')}</th>
-                    <th className="pb-3 px-3 text-right">{t('leaderboard.streak')}</th>
-                    <th className="pb-3 px-3 text-right">Courses</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaderboard.map((entry) => (
-                    <tr
-                      key={entry.userId}
-                      className="border-b border-gray-300 dark:border-terminal-border hover:bg-gray-100 dark:hover:bg-terminal-surface transition-colors"
-                    >
-                      <td className="py-4 px-3">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 dark:bg-neon-cyan text-white dark:text-terminal-bg font-bold">
-                          {entry.rank}
-                        </div>
-                      </td>
-                      <td className="py-4 px-3">
-                        <div className="flex items-center gap-3">
-                          <span className="w-8 h-8 rounded-full bg-gray-200 dark:bg-terminal-surface text-center leading-8">
-                            👤
-                          </span>
-                          <span className="font-semibold text-gray-900 dark:text-white">{entry.username}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-3 text-right text-blue-600 dark:text-neon-cyan font-semibold">
-                        {entry.totalXp.toLocaleString()}
-                      </td>
-                      <td className="py-4 px-3 text-right text-green-600 dark:text-neon-green">{entry.level}</td>
-                      <td className="py-4 px-3 text-right text-yellow-600 dark:text-neon-yellow">
-                        {entry.currentStreak}
-                      </td>
-                      <td className="py-4 px-3 text-right text-gray-600 dark:text-gray-400">{entry.coursesCompleted}</td>
+            {!isLoading && leaderboard.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-300 dark:border-terminal-border text-left text-sm text-gray-600 dark:text-gray-400">
+                      <th className="pb-3 px-3 w-16">{t('leaderboard.rank')}</th>
+                      <th className="pb-3 px-3">{t('leaderboard.username')}</th>
+                      <th className="pb-3 px-3 text-right">{t('leaderboard.xp')}</th>
+                      <th className="pb-3 px-3 text-right">{t('leaderboard.level')}</th>
+                      <th className="pb-3 px-3 text-right">{t('leaderboard.streak')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {leaderboard.map((entry, idx) => {
+                      const isCurrentUser = user && entry.userId === user.id
+                      return (
+                        <tr
+                          key={entry.userId}
+                          className={`border-b border-gray-300 dark:border-terminal-border transition-colors ${
+                            isCurrentUser
+                              ? 'bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30'
+                              : 'hover:bg-gray-100 dark:hover:bg-terminal-surface'
+                          }`}
+                        >
+                          <td className="py-4 px-3">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 dark:bg-neon-cyan text-white dark:text-terminal-bg font-bold text-sm">
+                              {idx + 1}
+                            </div>
+                          </td>
+                          <td className="py-4 px-3">
+                            <div className="flex items-center gap-3">
+                              <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-600 text-white flex items-center justify-center text-sm font-bold">
+                                {(entry.displayName || 'User')[0].toUpperCase()}
+                              </span>
+                              <div>
+                                <span className="font-semibold text-gray-900 dark:text-white">
+                                  {entry.displayName || 'Anonymous'}
+                                </span>
+                                {isCurrentUser && (
+                                  <span className="ml-2 text-xs bg-blue-600 dark:bg-neon-cyan text-white dark:text-terminal-bg px-2 py-0.5 rounded">
+                                    You
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-3 text-right text-blue-600 dark:text-neon-cyan font-semibold">
+                            {entry.totalXP.toLocaleString()}
+                          </td>
+                          <td className="py-4 px-3 text-right text-green-600 dark:text-neon-green font-semibold">
+                            {entry.level}
+                          </td>
+                          <td className="py-4 px-3 text-right text-orange-600 dark:text-orange-400">
+                            🔥 {entry.currentStreak}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : isLoading ? (
+              <div className="space-y-4">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="h-16 bg-gray-200 dark:bg-terminal-bg rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-600 dark:text-gray-400">
+                <p>No leaderboard data available yet</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

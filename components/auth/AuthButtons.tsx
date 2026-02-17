@@ -1,11 +1,13 @@
 'use client'
 
-import { signIn, signOut, useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { signOut, useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { useState } from 'react'
 
 export function AuthButtons() {
   const { data: session } = useSession()
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
 
   if (session?.user) {
@@ -56,7 +58,7 @@ export function AuthButtons() {
 
   return (
     <button
-      onClick={() => signIn()}
+      onClick={() => router.push('/auth/signin')}
       className="px-3 py-1 bg-blue-600 dark:bg-neon-cyan hover:bg-blue-700 dark:hover:bg-neon-cyan/90 text-white dark:text-terminal-bg rounded text-sm font-semibold transition-colors"
     >
       Sign In

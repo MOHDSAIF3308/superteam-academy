@@ -6,6 +6,16 @@ export type { CourseService } from './course.service'
 export { LocalLearningProgressService } from './learning-progress.service'
 export { LocalCourseService } from './course.service'
 
+// Code execution services
+export { CodeExecutionService } from './code-execution.service'
+export { TestRunnerService } from './test-runner.service'
+export type { ExecutionOutput } from './code-execution.service'
+export type { TestCase, TestResult, TestRunnerResult } from './test-runner.service'
+
+// Transaction service
+export { transactionService } from './transaction.service'
+export type { SignedTxResponse, CompleteLessonRequest } from './transaction.service'
+
 // Service instances (singleton pattern)
 let learningProgressService: LocalLearningProgressService | null = null
 let courseService: LocalCourseService | null = null

@@ -1,95 +1,88 @@
 'use client'
 
-import { useI18n } from '@/lib/hooks/useI18n'
-import { Card, CardContent, CardHeader } from '@/components/ui'
-import { StatsCard, LevelDisplay, ProgressBar } from '@/components/dashboard'
-import { CourseCard } from '@/components/courses'
-import { getAllCourses, getUserEnrollments } from '@/lib/services/course.service'
-import { useState, useEffect } from 'react'
-import { Course, Enrollment } from '@/lib/types'
+import { useSession } from 'next-auth/react'
+import { useGamification } from '@/lib/hooks/useGamification'
+import { Card, Button } from '@/components/ui'
+import Link from 'next/link'
 
 export default function DashboardPage() {
-  const { t } = useI18n()
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
-  const [courses, setCourses] = useState<Course[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: session, status } = useSession()
+  const { stats, loading } = useGamification()
 
-  useEffect(() => {
-    async function fetch() {
-      // TODO: Get actual user ID from auth context
-      const userId = 'user-1'
-      const allCourses = await getAllCourses()
-      const userEnrollments = await getUserEnrollments(userId)
-      setCourses(allCourses)
-      setEnrollments(userEnrollments)
-      setLoading(false)
-    }
-    fetch()
-  }, [])
-
-  const currentCourses = enrollments.slice(0, 3).map((e) => courses.find((c) => c.id === e.courseId)).filter(Boolean) as Course[]
-
-  return (
-    <main className="min-h-screen py-12 bg-gray-50 dark:bg-inherit">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-4xl font-display font-bold text-blue-600 dark:text-neon-cyan mb-2">
-            {t('dashboard.title')}
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">{t('dashboard.welcome')}</p>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
-          <StatsCard icon="⭐" label={t('dashboard.stats.xp')} value="2,450" />
-          <StatsCard icon="📊" label={t('dashboard.stats.level')} value="7" />
-          <StatsCard icon="🔥" label={t('dashboard.stats.streak')} value="12" />
-          <StatsCard icon="🏆" label={t('dashboard.stats.coursesCompleted')} value="3" />
-        </div>
-
-        {/* Level Progress */}
-        <Card className="mb-12">
-          <CardContent>
-            <LevelDisplay level={7} xp={2450} xpRequiredForNextLevel={6400} />
-          </CardContent>
-        </Card>
-
-        {/* Current Courses */}
-        <div className="mb-12">
-          <h2 className="text-2xl font-display font-bold text-gray-900 dark:text-white mb-6">
-            {t('dashboard.currentCourses')}
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {currentCourses.map((course) => (
-              <div key={course.id}>
-                <CourseCard course={course} isEnrolled />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Achievements */}
-        <Card>
-          <CardHeader>
-            <h2 className="text-2xl font-display font-bold text-gray-900 dark:text-white">
-              {t('dashboard.achievements')}
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {['🚀', '🎯', '💡', '🏆', '⚡', '🔥'].map((emoji, idx) => (
-                <div
-                  key={idx}
-                  className="flex flex-col items-center justify-center p-4 bg-gray-100 dark:bg-terminal-bg rounded-lg border border-gray-300 dark:border-terminal-border hover:border-blue-600 dark:hover:border-neon-cyan transition-colors"
-                >
-                  <div className="text-3xl mb-2">{emoji}</div>
-                  <p className="text-xs text-gray-600 dark:text-gray-400 text-center">Achievement {idx + 1}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
+  if (status === 'unauthenticated') {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Card className="p-8 text-center">
+          <h1 className="text-2xl font-bold mb-4">Sign In to View Dashboard</h1>
+          <p className="text-gray-600 mb-4">Please sign in to view your progress</p>
+          <Link href="/auth/signin">
+            <Button>Sign In</Button>
+          </Link>
         </Card>
       </div>
-    </main>
+    )
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-4 gap-4 mb-8">
+        <Card className="p-4">
+          <p className="text-gray-600 text-sm">Total XP</p>
+          <p className="text-3xl font-bold text-neon-cyan">{stats?.totalXP || 0}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-gray-600 text-sm">Level</p>
+          <p className="text-3xl font-bold text-neon-green">{stats?.level || 1}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-gray-600 text-sm">Current Streak</p>
+          <p className="text-3xl font-bold text-neon-magenta">{stats?.currentStreak || 0} days</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-gray-600 text-sm">Achievements</p>
+          <p className="text-3xl font-bold">{stats?.achievementsUnlocked || 0}</p>
+        </Card>
+      </div>
+
+      {/* XP Progress */}
+      {stats && (
+        <Card className="p-6 mb-8">
+          <h2 className="text-xl font-bold mb-4">Level Progress</h2>
+          <div className="w-full bg-gray-200 dark:bg-terminal-surface rounded-full h-4">
+            <div
+              className="bg-neon-cyan h-4 rounded-full transition-all"
+              style={{ width: `${stats.xpProgress.percentage}%` }}
+            />
+          </div>
+          <p className="text-sm text-gray-600 mt-2">
+            {stats.xpProgress.current} / {stats.xpProgress.needed} XP to next level
+          </p>
+        </Card>
+      )}
+
+      {/* Streaks */}
+      {stats && (
+        <Card className="p-6">
+          <h2 className="text-xl font-bold mb-4">Streak Info</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-gray-600 text-sm">Current Streak</p>
+              <p className="text-2xl font-bold">{stats.currentStreak} days 🔥</p>
+            </div>
+            <div>
+              <p className="text-gray-600 text-sm">Longest Streak</p>
+              <p className="text-2xl font-bold">{stats.longestStreak} days ⭐</p>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
   )
 }

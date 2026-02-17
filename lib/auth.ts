@@ -5,12 +5,12 @@ import GitHubProvider from 'next-auth/providers/github'
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID ?? '',
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+      clientId: process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     }),
     GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID ?? '',
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
+      clientId: process.env.GITHUB_CLIENT_ID || '',
+      clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
     }),
   ],
   pages: {
@@ -19,12 +19,13 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        // attach user fields to token if present
+        // Use email as unique ID for OAuth users
+        const userId = user.email || user.id
         Object.assign(token, {
-          id: (user as any).id,
-          name: (user as any).name,
-          email: (user as any).email,
-          image: (user as any).image,
+          id: userId,
+          name: user.name,
+          email: user.email,
+          image: user.image,
         })
       }
       return token
@@ -36,4 +37,5 @@ export const authOptions: NextAuthOptions = {
       return session
     },
   },
+  secret: process.env.NEXTAUTH_SECRET,
 }

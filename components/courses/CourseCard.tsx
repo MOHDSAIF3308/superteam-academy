@@ -3,7 +3,9 @@
 import { Course } from '@/lib/types'
 import { Card, Button } from '@/components/ui'
 import { useI18n } from '@/lib/hooks/useI18n'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
+import { useState } from 'react'
 
 interface CourseCardProps {
   course: Course
@@ -12,11 +14,55 @@ interface CourseCardProps {
 
 export function CourseCard({ course, isEnrolled = false }: CourseCardProps) {
   const { t } = useI18n()
+  const { data: session } = useSession()
+  const [loading, setLoading] = useState(false)
 
   const difficultyColors = {
     beginner: 'text-neon-green',
     intermediate: 'text-neon-yellow',
     advanced: 'text-neon-magenta',
+  }
+
+  const handleEnroll = async () => {
+    console.log('Enroll clicked, session:', session)
+    if (!session?.user) {
+      alert('Please sign in first')
+      return
+    }
+
+    const userId = (session.user as any).id || session.user.email
+    console.log('Using userId:', userId)
+    
+    if (!userId) {
+      alert('Unable to get user ID')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enrollments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          courseId: course.id,
+        }),
+      })
+
+      console.log('Enrollment response:', response.status)
+      if (response.ok) {
+        alert('Enrolled successfully!')
+        window.location.reload()
+      } else {
+        const error = await response.json()
+        alert(`Enrollment failed: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('Enrollment failed:', error)
+      alert('Enrollment failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -50,11 +96,17 @@ export function CourseCard({ course, isEnrolled = false }: CourseCardProps) {
       <div className="flex gap-2 pt-4 border-t border-gray-300 dark:border-terminal-border">
         <Link href={`/courses/${course.slug}`} className="flex-1">
           <Button variant="secondary" className="w-full" size="sm">
-            {t('common.edit')}
+            {t('common.view')}
           </Button>
         </Link>
-        <Button variant="primary" size="sm" className="flex-1">
-          {isEnrolled ? t('courses.enrolled') : t('courses.enroll')}
+        <Button 
+          variant="primary" 
+          size="sm" 
+          className="flex-1"
+          onClick={handleEnroll}
+          disabled={isEnrolled || loading}
+        >
+          {isEnrolled ? t('courses.enrolled') : loading ? 'Enrolling...' : t('courses.enroll')}
         </Button>
       </div>
     </Card>
