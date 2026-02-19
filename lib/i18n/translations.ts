@@ -35,6 +35,7 @@ export const translations = {
       advancedCourses: 'Advanced',
       duration: 'Duration',
       enroll: 'Enroll',
+      enrolling: 'Enrolling...',
       enrolled: 'Enrolled',
       minutes: 'minutes',
     },
@@ -151,6 +152,7 @@ export const translations = {
       confirm: 'Confirm',
       noData: 'No data available',
       back: 'Back',
+      connectWallet: 'Connect Wallet',
     },
   },
   'pt-br': {
@@ -189,6 +191,7 @@ export const translations = {
       advancedCourses: 'Avançado',
       duration: 'Duração',
       enroll: 'Inscrever-se',
+      enrolling: 'Inscrevendo...',
       enrolled: 'Inscrito',
       minutes: 'minutos',
     },
@@ -305,6 +308,7 @@ export const translations = {
       confirm: 'Confirmar',
       noData: 'Sem dados disponíveis',
       back: 'Voltar',
+      connectWallet: 'Conectar Carteira',
     },
   },
   es: {
@@ -343,6 +347,7 @@ export const translations = {
       advancedCourses: 'Avanzado',
       duration: 'Duración',
       enroll: 'Inscribirse',
+      enrolling: 'Inscribiendo...',
       enrolled: 'Inscrito',
       minutes: 'minutos',
     },
@@ -459,6 +464,7 @@ export const translations = {
       confirm: 'Confirmar',
       noData: 'Sin datos disponibles',
       back: 'Atrás',
+      connectWallet: 'Conectar Billetera',
     },
   },
 }

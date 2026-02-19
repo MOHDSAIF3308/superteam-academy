@@ -2,11 +2,13 @@
 
 import { useI18n } from '@/lib/hooks/useI18n'
 import { Button, Card, CardContent, CardHeader } from '@/components/ui'
-import { ProgressBar } from '@/components/dashboard'
 import { getCourseService } from '@/lib/services'
 import { useState, useEffect } from 'react'
-import { Course, Module, Lesson } from '@/lib/types'
+import { Course } from '@/lib/types'
+import { useWallet } from '@/lib/hooks/useWallet'
+import { useEnrollCourse, useEnrollment } from '@/lib/hooks/useOnchain'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface CourseDetailPageProps {
   params: {
@@ -15,9 +17,17 @@ interface CourseDetailPageProps {
 }
 
 export default function CourseDetailPage({ params }: CourseDetailPageProps) {
+  const router = useRouter()
   const { t } = useI18n()
   const [course, setCourse] = useState<Course | null>(null)
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
+  const { connected, publicKey, openWalletModal } = useWallet()
+  const { mutateAsync: enrollOnChain, isPending: enrolling } = useEnrollCourse()
+  const onChainCourseId = course?.onchainCourseId || course?.slug || course?.id
+  const { data: enrollment, refetch: refetchEnrollment } = useEnrollment(
+    onChainCourseId,
+    publicKey || undefined
+  )
 
   useEffect(() => {
     async function fetchCourse() {
@@ -27,6 +37,43 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     }
     fetchCourse()
   }, [params.slug])
+
+  const isEnrolled = !!enrollment
+  const firstLessonId = course?.modules[0]?.lessons[0]?.id
+
+  const handleStartCourse = async () => {
+    if (!course) return
+
+    if (!connected || !publicKey) {
+      openWalletModal()
+      return
+    }
+
+    const firstLessonPath = firstLessonId
+      ? `/courses/${course.slug}/lessons/${firstLessonId}`
+      : null
+
+    if (isEnrolled) {
+      if (firstLessonPath) {
+        router.push(firstLessonPath)
+      }
+      return
+    }
+
+    if (!onChainCourseId) return
+
+    try {
+      await enrollOnChain({ courseId: onChainCourseId })
+      await refetchEnrollment()
+      if (firstLessonPath) {
+        router.push(firstLessonPath)
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to enroll course on-chain'
+      alert(message)
+    }
+  }
 
   if (!course) {
     return <div className="min-h-screen flex items-center justify-center text-gray-400">{t('common.loading')}</div>
@@ -64,7 +111,19 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
           <p className="text-gray-300 mb-6">{course.description}</p>
 
-          <Button variant="primary">{t('courseDetail.startCourse')}</Button>
+          <Button
+            variant="primary"
+            onClick={handleStartCourse}
+            disabled={enrolling || (isEnrolled && !firstLessonId)}
+          >
+            {!connected
+              ? t('common.connectWallet')
+              : isEnrolled
+                ? t('courseDetail.continueCourse')
+                : enrolling
+                  ? t('courses.enrolling')
+                  : t('courseDetail.startCourse')}
+          </Button>
         </div>
 
         {/* Modules */}

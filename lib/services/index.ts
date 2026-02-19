@@ -8,8 +8,10 @@ export { LocalCourseService } from './course.service'
 
 // Code execution services
 export { CodeExecutionService } from './code-execution.service'
+export { RustExecutionService } from './rust-execution.service'
 export { TestRunnerService } from './test-runner.service'
 export type { ExecutionOutput } from './code-execution.service'
+export type { RustExecutionOutput, RustExecutionRequest } from './rust-execution.service'
 export type { TestCase, TestResult, TestRunnerResult } from './test-runner.service'
 
 // Transaction service

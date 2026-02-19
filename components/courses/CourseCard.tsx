@@ -3,19 +3,33 @@
 import { Course } from '@/lib/types'
 import { Card, Button } from '@/components/ui'
 import { useI18n } from '@/lib/hooks/useI18n'
-import { useSession } from 'next-auth/react'
+import { useWallet } from '@/lib/hooks/useWallet'
+import { useEnrollCourse, useEnrollment } from '@/lib/hooks/useOnchain'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface CourseCardProps {
   course: Course
   isEnrolled?: boolean
+  onEnrollmentSuccess?: () => void
 }
 
-export function CourseCard({ course, isEnrolled = false }: CourseCardProps) {
+export function CourseCard({ course, isEnrolled = false, onEnrollmentSuccess }: CourseCardProps) {
   const { t } = useI18n()
-  const { data: session } = useSession()
-  const [loading, setLoading] = useState(false)
+  const { connected, publicKey, openWalletModal } = useWallet()
+  const { mutateAsync: enrollOnChain, isPending: enrolling } = useEnrollCourse()
+  const onChainCourseId = course.onchainCourseId || course.slug || course.id
+  const { data: onChainEnrollment, refetch: refetchEnrollment } = useEnrollment(
+    onChainCourseId,
+    publicKey || undefined
+  )
+  const [optimisticEnrolled, setOptimisticEnrolled] = useState(isEnrolled)
+
+  useEffect(() => {
+    setOptimisticEnrolled(isEnrolled)
+  }, [isEnrolled])
+
+  const enrolled = optimisticEnrolled || !!onChainEnrollment
 
   const difficultyColors = {
     beginner: 'text-neon-green',
@@ -24,44 +38,24 @@ export function CourseCard({ course, isEnrolled = false }: CourseCardProps) {
   }
 
   const handleEnroll = async () => {
-    console.log('Enroll clicked, session:', session)
-    if (!session?.user) {
-      alert('Please sign in first')
+    if (!connected || !publicKey) {
+      openWalletModal()
       return
     }
 
-    const userId = (session.user as any).id || session.user.email
-    console.log('Using userId:', userId)
-    
-    if (!userId) {
-      alert('Unable to get user ID')
+    if (enrolled) {
       return
     }
 
-    setLoading(true)
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enrollments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          courseId: course.id,
-        }),
-      })
-
-      console.log('Enrollment response:', response.status)
-      if (response.ok) {
-        alert('Enrolled successfully!')
-        window.location.reload()
-      } else {
-        const error = await response.json()
-        alert(`Enrollment failed: ${error.error}`)
-      }
+      await enrollOnChain({ courseId: onChainCourseId })
+      setOptimisticEnrolled(true)
+      onEnrollmentSuccess?.()
+      await refetchEnrollment()
     } catch (error) {
-      console.error('Enrollment failed:', error)
-      alert('Enrollment failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
-    } finally {
-      setLoading(false)
+      const message =
+        error instanceof Error ? error.message : 'Failed to enroll course on-chain'
+      alert(message)
     }
   }
 
@@ -104,9 +98,15 @@ export function CourseCard({ course, isEnrolled = false }: CourseCardProps) {
           size="sm" 
           className="flex-1"
           onClick={handleEnroll}
-          disabled={isEnrolled || loading}
+          disabled={enrolled || enrolling}
         >
-          {isEnrolled ? t('courses.enrolled') : loading ? 'Enrolling...' : t('courses.enroll')}
+          {enrolled
+            ? t('courses.enrolled')
+            : enrolling
+              ? t('courses.enrolling')
+              : connected
+                ? t('courses.enroll')
+                : t('common.connectWallet')}
         </Button>
       </div>
     </Card>

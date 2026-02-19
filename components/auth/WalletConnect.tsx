@@ -20,7 +20,7 @@ export function WalletConnect() {
   // If SSR, don't render (wallet adapter requires client)
   if (!wallet) {
     return (
-      <Button variant="outline" disabled>
+      <Button variant="secondary" disabled>
         Loading Wallet...
       </Button>
     )

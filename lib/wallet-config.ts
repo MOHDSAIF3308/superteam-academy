@@ -4,7 +4,7 @@
  * Defines which wallets users can connect with and RPC endpoints
  */
 
-import { PhantomWalletAdapter, SolflareWalletAdapter, BackpackWalletAdapter } from '@solana/wallet-adapter-wallets'
+import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'
 import { clusterApiUrl } from '@solana/web3.js'
 
@@ -19,7 +19,6 @@ export const RPC_ENDPOINT = process.env.NEXT_PUBLIC_SOLANA_RPC || clusterApiUrl(
 export const SUPPORTED_WALLETS = [
   new PhantomWalletAdapter(),
   new SolflareWalletAdapter({ network: NETWORK }),
-  new BackpackWalletAdapter(),
 ]
 
 /**

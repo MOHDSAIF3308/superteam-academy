@@ -9,8 +9,8 @@ import { useState } from 'react'
 export default function LeaderboardPage() {
   const { t } = useI18n()
   const { user } = useAuth()
-  const { leaderboard, isLoading } = useLeaderboard()
-  const { userRank, isLoading: rankLoading } = useUserRank(user?.id || '')
+  const { leaderboard, loading } = useLeaderboard()
+  const { rank: userRank, loading: rankLoading } = useUserRank(user?.id || '')
   const [timeframe] = useState<'weekly' | 'monthly' | 'alltime'>('alltime')
 
   return (
@@ -68,12 +68,12 @@ export default function LeaderboardPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-display font-bold text-gray-900 dark:text-white">Top Developers</h2>
               <span className="text-sm text-gray-600 dark:text-gray-400">
-                {isLoading ? 'Loading...' : `${leaderboard.length} developers`}
+                {loading ? 'Loading...' : `${leaderboard.length} developers`}
               </span>
             </div>
           </CardHeader>
           <CardContent>
-            {!isLoading && leaderboard.length > 0 ? (
+            {!loading && leaderboard.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -134,7 +134,7 @@ export default function LeaderboardPage() {
                   </tbody>
                 </table>
               </div>
-            ) : isLoading ? (
+            ) : loading ? (
               <div className="space-y-4">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <div key={i} className="h-16 bg-gray-200 dark:bg-terminal-bg rounded-lg animate-pulse" />

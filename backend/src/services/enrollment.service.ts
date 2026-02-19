@@ -7,10 +7,10 @@ export class EnrollmentService {
    * Enroll user in course
    */
   async enrollCourse(userId: string, courseId: string) {
-    const supabase = getDatabase()
+    const db = getDatabase()
 
     // Check if already enrolled
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('enrollments')
       .select('id')
       .eq('user_id', userId)
@@ -22,7 +22,7 @@ export class EnrollmentService {
     }
 
     const enrollmentId = randomUUID()
-    await supabase.from('enrollments').insert({
+    await db.from('enrollments').insert({
       id: enrollmentId,
       user_id: userId,
       course_id: courseId,
@@ -37,10 +37,10 @@ export class EnrollmentService {
    * Complete lesson and award XP
    */
   async completeLesson(userId: string, courseId: string, lessonId: string, xpAmount: number) {
-    const supabase = getDatabase()
+    const db = getDatabase()
 
     // Check if already completed
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('lesson_progress')
       .select('id, completed')
       .eq('user_id', userId)
@@ -56,7 +56,7 @@ export class EnrollmentService {
 
     // Insert or update lesson progress
     if (existing) {
-      await supabase
+      await db
         .from('lesson_progress')
         .update({
           completed: 1,
@@ -65,7 +65,7 @@ export class EnrollmentService {
         })
         .eq('id', existing.id)
     } else {
-      await supabase.from('lesson_progress').insert({
+      await db.from('lesson_progress').insert({
         id: progressId,
         user_id: userId,
         course_id: courseId,
@@ -77,7 +77,7 @@ export class EnrollmentService {
     }
 
     // Update enrollment progress
-    const { data: enrollment } = await supabase
+    const { data: enrollment } = await db
       .from('enrollments')
       .select('lessons_completed, total_xp_earned')
       .eq('user_id', userId)
@@ -85,7 +85,7 @@ export class EnrollmentService {
       .single()
 
     if (enrollment) {
-      await supabase
+      await db
         .from('enrollments')
         .update({
           lessons_completed: enrollment.lessons_completed + 1,
@@ -108,9 +108,9 @@ export class EnrollmentService {
    * Get course progress
    */
   async getCourseProgress(userId: string, courseId: string) {
-    const supabase = getDatabase()
+    const db = getDatabase()
 
-    const { data: enrollment } = await supabase
+    const { data: enrollment } = await db
       .from('enrollments')
       .select('lessons_completed, total_xp_earned, enrolled_at, completed_at')
       .eq('user_id', userId)
@@ -121,7 +121,7 @@ export class EnrollmentService {
       return null
     }
 
-    const { data: lessonsCompleted } = await supabase
+    const { data: lessonsCompleted } = await db
       .from('lesson_progress')
       .select('lesson_id')
       .eq('user_id', userId)
@@ -138,15 +138,15 @@ export class EnrollmentService {
    * Get all user progress
    */
   async getUserProgress(userId: string) {
-    const supabase = getDatabase()
+    const db = getDatabase()
 
-    const { data: user } = await supabase
+    const { data: user } = await db
       .from('users')
       .select('total_xp, level, current_streak')
       .eq('id', userId)
       .single()
 
-    const { data: enrollments } = await supabase
+    const { data: enrollments } = await db
       .from('enrollments')
       .select('course_id, lessons_completed, total_xp_earned, enrolled_at, completed_at')
       .eq('user_id', userId)

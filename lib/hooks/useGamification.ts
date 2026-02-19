@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 
 export interface GamificationStats {
@@ -7,6 +7,8 @@ export interface GamificationStats {
   currentStreak: number
   longestStreak: number
   achievementsUnlocked: number
+  lessonsCompleted?: number
+  lessonsCompletedToday?: number
   xpProgress: {
     current: number
     needed: number
@@ -14,35 +16,38 @@ export interface GamificationStats {
   }
 }
 
-export function useGamification() {
+export function useGamification(refreshTrigger?: number) {
   const { data: session } = useSession()
   const [stats, setStats] = useState<GamificationStats | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const fetchStats = useCallback(async (userId: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/gamification/${userId}`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setStats(data)
+      } else {
+        console.error('Failed to fetch stats:', response.statusText)
+      }
+    } catch (error) {
+      console.error('Failed to fetch gamification stats:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (!session?.user?.id) {
+    const userId = (session?.user as any)?.id || session?.user?.email
+    if (!userId) {
       setLoading(false)
       return
     }
 
-    const fetchStats = async () => {
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/gamification/${session.user.id}`
-        )
-        if (response.ok) {
-          const data = await response.json()
-          setStats(data)
-        }
-      } catch (error) {
-        console.error('Failed to fetch gamification stats:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
+    fetchStats(userId)
+  }, [(session?.user as any)?.id, session?.user?.email, fetchStats, refreshTrigger])
 
-    fetchStats()
-  }, [session?.user?.id])
-
-  return { stats, loading }
+  return { stats, loading, refetch: fetchStats }
 }

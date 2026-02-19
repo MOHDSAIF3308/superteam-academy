@@ -1,17 +1,15 @@
-import express, { Request, Response } from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import path from 'path'
 import { initializeDatabase, closeDatabase } from './db'
-import { userService } from './services/user.service'
-import { enrollmentService } from './services/enrollment.service'
-import { GamificationService } from './services/gamification.service'
-import { TransactionService } from './services/transaction.service'
+import authRoutes from './routes/auth.routes'
+import apiRoutes from './routes/api.routes'
 
-dotenv.config()
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
 
 const app = express()
 const PORT = process.env.PORT || 3001
-let transactionService: TransactionService
 
 // Middleware
 app.use(express.json())
@@ -24,176 +22,31 @@ app.use(
 
 // ============= Health Check =============
 app.get('/api/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok' })
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// ============= USER ROUTES =============
+// ============= Auth Routes =============
+app.use('/api', authRoutes)
 
-app.post('/api/users/oauth', async (req: Request, res: Response) => {
-  try {
-    const { provider, providerUserId, profile } = req.body
-    const user = await userService.getOrCreateUser(provider, providerUserId, profile)
-    res.json(user)
-  } catch (error) {
-    console.error('OAuth user creation failed:', error)
-    res.status(500).json({ error: 'Failed to create user' })
-  }
+// ============= API Routes =============
+app.use('/api', apiRoutes)
+
+// ============= 404 Handler =============
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    error: 'Not found',
+    path: req.path,
+    timestamp: new Date().toISOString(),
+  })
 })
 
-app.get('/api/users/:userId', async (req: Request, res: Response) => {
-  try {
-    const user = await userService.getUserById(req.params.userId)
-    res.json(user)
-  } catch (error) {
-    res.status(404).json({ error: 'User not found' })
-  }
-})
-
-app.get('/api/users/:userId/enrollments', async (req: Request, res: Response) => {
-  try {
-    const enrollments = await userService.getUserEnrollments(req.params.userId)
-    res.json(enrollments)
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch enrollments' })
-  }
-})
-
-// ============= ENROLLMENT ROUTES =============
-
-app.post('/api/enrollments', async (req: Request, res: Response) => {
-  try {
-    const { userId, courseId } = req.body
-    if (!userId || !courseId) {
-      return res.status(400).json({ error: 'Missing userId or courseId' })
-    }
-    
-    // Ensure user exists - create if doesn't exist
-    let user
-    try {
-      user = await userService.getUserById(userId)
-    } catch {
-      // User doesn't exist, create with email as ID
-      user = await userService.getOrCreateUser('local', userId, {
-        email: userId,
-        name: userId.split('@')[0],
-      })
-    }
-    
-    const enrollment = await enrollmentService.enrollCourse(user.id, courseId)
-    console.log('✅ Enrollment successful:', { userId: user.id, courseId })
-    res.json(enrollment)
-  } catch (error) {
-    console.error('❌ Enrollment failed:', error)
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to enroll' })
-  }
-})
-
-app.post('/api/enrollments/complete-lesson', async (req: Request, res: Response) => {
-  try {
-    const { userId, courseId, lessonId, xpAmount } = req.body
-    if (!userId || !courseId || !lessonId || !xpAmount) {
-      return res.status(400).json({ error: 'Missing required fields' })
-    }
-    const result = await enrollmentService.completeLesson(userId, courseId, lessonId, xpAmount)
-    res.json(result)
-  } catch (error) {
-    console.error('Lesson completion failed:', error)
-    res.status(500).json({ error: 'Failed to complete lesson' })
-  }
-})
-
-app.get('/api/progress/:userId', async (req: Request, res: Response) => {
-  try {
-    const progress = await enrollmentService.getUserProgress(req.params.userId)
-    res.json(progress)
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch progress' })
-  }
-})
-
-app.get('/api/gamification/:userId', async (req: Request, res: Response) => {
-  try {
-    const stats = await GamificationService.getStats(req.params.userId)
-    res.json(stats)
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch gamification stats' })
-  }
-})
-
-// ============= LEADERBOARD ROUTES =============
-
-app.get('/api/leaderboard', async (req: Request, res: Response) => {
-  try {
-    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500)
-    const leaderboard = await userService.getLeaderboard(limit)
-    res.json(leaderboard)
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch leaderboard' })
-  }
-})
-
-app.get('/api/leaderboard/rank/:userId', async (req: Request, res: Response) => {
-  try {
-    const rank = await userService.getUserRank(req.params.userId)
-    res.json({ rank })
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch rank' })
-  }
-})
-
-// ============= TRANSACTION ROUTES =============
-
-app.post('/api/transaction/complete-lesson', async (req: Request, res: Response) => {
-  try {
-    const { userId, courseId, lessonIndex, xpAmount } = req.body
-    if (!userId || !courseId || lessonIndex === undefined || !xpAmount) {
-      return res.status(400).json({ error: 'Missing required fields' })
-    }
-    const signedTx = await transactionService.completeLessonTX({
-      userId,
-      courseId,
-      lessonIndex,
-      xpAmount,
-    })
-    res.json(signedTx)
-  } catch (error) {
-    console.error('Error building TX:', error)
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to build transaction',
-    })
-  }
-})
-
-app.post('/api/transaction/enroll', async (req: Request, res: Response) => {
-  try {
-    const { userId, courseId } = req.body
-    if (!userId || !courseId) {
-      return res.status(400).json({ error: 'Missing userId or courseId' })
-    }
-    const signedTx = await transactionService.enrollTX(userId, courseId)
-    res.json(signedTx)
-  } catch (error) {
-    console.error('Error building enroll TX:', error)
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to build transaction',
-    })
-  }
-})
-
-app.post('/api/transaction/finalize-course', async (req: Request, res: Response) => {
-  try {
-    const { userId, courseId } = req.body
-    if (!userId || !courseId) {
-      return res.status(400).json({ error: 'Missing userId or courseId' })
-    }
-    const signedTx = await transactionService.finalizeCourseT(userId, courseId)
-    res.json(signedTx)
-  } catch (error) {
-    console.error('Error building finalize TX:', error)
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to build transaction',
-    })
-  }
+// ============= Error Handler =============
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('Error:', err)
+  res.status(500).json({
+    error: err.message || 'Internal server error',
+    timestamp: new Date().toISOString(),
+  })
 })
 
 // ============= Start Server =============
@@ -202,14 +55,32 @@ async function start() {
   try {
     // Initialize database
     await initializeDatabase()
-
-    // Initialize transaction service
-    transactionService = new TransactionService()
-    console.log('✅ Transaction service initialized')
+    console.log('✅ Database initialized')
 
     // Start server
     app.listen(PORT, () => {
       console.log(`✅ Backend running on http://localhost:${PORT}`)
+      console.log(`📚 API Documentation:`)
+      console.log(`   AUTH:`)
+      console.log(`   - POST   /api/auth/signup`)
+      console.log(`   - POST   /api/auth/login`)
+      console.log(`   - POST   /api/auth/verify`)
+      console.log(`   - PUT    /api/auth/profile/:userId`)
+      console.log(`   ENROLLMENT:`)
+      console.log(`   - POST   /api/enrollments`)
+      console.log(`   - POST   /api/enrollments/complete-lesson`)
+      console.log(`   - POST   /api/enrollments/finalize-course`)
+      console.log(`   - POST   /api/enrollments/issue-credential`)
+      console.log(`   - GET    /api/progress/:userId`)
+      console.log(`   - GET    /api/enrollments/:userId`)
+      console.log(`   GAMIFICATION:`)
+      console.log(`   - GET    /api/gamification/:userId`)
+      console.log(`   - GET    /api/leaderboard`)
+      console.log(`   - GET    /api/leaderboard/rank/:userId`)
+      console.log(`   BLOCKCHAIN:`)
+      console.log(`   - GET    /api/blockchain/xp-balance/:wallet`)
+      console.log(`   - GET    /api/blockchain/credentials/:wallet`)
+      console.log(`   - GET    /api/blockchain/rank/:wallet`)
     })
   } catch (error) {
     console.error('❌ Failed to start server:', error)

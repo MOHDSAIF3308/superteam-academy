@@ -1,6 +1,33 @@
 import type { NextAuthOptions } from 'next-auth'
 import GoogleProvider from 'next-auth/providers/google'
 import GitHubProvider from 'next-auth/providers/github'
+import { createClient } from '@supabase/supabase-js'
+
+async function userExistsByEmail(email?: string | null): Promise<boolean> {
+  if (!email) return false
+
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return false
+  }
+
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle()
+
+    if (error) return false
+    return !!data
+  } catch {
+    return false
+  }
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -17,15 +44,31 @@ export const authOptions: NextAuthOptions = {
     signIn: '/auth/signin',
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account }) {
+      // Store provider info in user object for later use
       if (user) {
-        // Use email as unique ID for OAuth users
+        ;(user as any).provider = account?.provider
+      }
+      return true
+    },
+    async jwt({ token, user, account, trigger, session }) {
+      if (trigger === 'update' && session) {
+        if (typeof (session as any).needsProfile === 'boolean') {
+          ;(token as any).needsProfile = (session as any).needsProfile
+        }
+      }
+
+      if (user) {
         const userId = user.email || user.id
+        const exists = await userExistsByEmail(user.email)
+
         Object.assign(token, {
           id: userId,
           name: user.name,
           email: user.email,
           image: user.image,
+          provider: account?.provider,
+          needsProfile: !exists,
         })
       }
       return token
@@ -33,8 +76,15 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         ;(session.user as any).id = (token as any).id
+        ;(session.user as any).provider = (token as any).provider
+        ;(session.user as any).needsProfile = Boolean((token as any).needsProfile)
       }
       return session
+    },
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith('/')) return `${baseUrl}${url}`
+      if (url.startsWith(baseUrl)) return url
+      return baseUrl
     },
   },
   secret: process.env.NEXTAUTH_SECRET,

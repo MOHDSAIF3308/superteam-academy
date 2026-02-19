@@ -1,5 +1,6 @@
 import { useConnection } from '@solana/wallet-adapter-react'
 import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor'
+import { PublicKey } from '@solana/web3.js'
 import { useMemo } from 'react'
 import { useWallet } from './useWallet'
 import IDL from '@/lib/anchor/academy.json'
@@ -16,38 +17,40 @@ import IDL from '@/lib/anchor/academy.json'
  */
 export const useProgram = () => {
   const { connection } = useConnection()
-  const { publicKey, signTransaction } = useWallet()
+  const wallet = useWallet()
+  const { publicKey } = wallet
 
   return useMemo(() => {
-    if (!publicKey || !signTransaction) {
+    if (!publicKey) {
       return null
     }
 
     try {
-      const wallet = {
+      const walletAdapter = (wallet as any)
+      const walletObj = {
         publicKey,
-        signTransaction,
+        signTransaction: walletAdapter.signTransaction,
         signAllTransactions: async (txs: any[]) => {
-          return Promise.all(txs.map((tx) => signTransaction(tx)))
+          return Promise.all(txs.map((tx) => walletAdapter.signTransaction?.(tx)))
         },
       } as Wallet
 
-      const provider = new AnchorProvider(connection, wallet, {
+      const provider = new AnchorProvider(connection, walletObj, {
         commitment: 'confirmed',
       })
 
-      const programId = process.env.NEXT_PUBLIC_ANCHOR_PROGRAM_ID
+      const programId = process.env.NEXT_PUBLIC_ANCHOR_PROGRAM_ID as any
       if (!programId) {
         console.warn('NEXT_PUBLIC_ANCHOR_PROGRAM_ID not set')
         return null
       }
 
-      return new Program(IDL as any, programId, provider)
+      return new Program(IDL as any, programId, provider as any) as any
     } catch (error) {
       console.error('Failed to initialize program:', error)
       return null
     }
-  }, [connection, publicKey, signTransaction])
+  }, [connection, publicKey, wallet])
 }
 
 export type UseProgram = ReturnType<typeof useProgram>

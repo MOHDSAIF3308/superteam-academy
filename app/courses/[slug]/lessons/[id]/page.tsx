@@ -1,297 +1,311 @@
 'use client'
 
-import { useI18n } from '@/lib/hooks/useI18n'
-import { Button, Card } from '@/components/ui'
-import { ProgressBar } from '@/components/dashboard'
-import { ChallengeRunner } from '@/components/editor'
-import { useState } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { getCourseServiceInstance } from '@/lib/services/course.service'
+import { submitLesson } from '@/lib/hooks/useLessonSubmission'
+import { useGamification } from '@/lib/hooks/useGamification'
+import { Card, Button } from '@/components/ui'
 import Link from 'next/link'
-import { Lesson } from '@/lib/types'
+import { useSession } from 'next-auth/react'
+import ReactMarkdown from 'react-markdown'
 
-interface LessonPageProps {
-  params: {
-    slug: string
-    id: string
+interface Lesson {
+  id: string
+  title: string
+  description?: string
+  type: 'content' | 'challenge'
+  content: string
+  order: number
+  xpReward: number
+  challenge?: {
+    prompt: string
+    starterCode: string
+    testCases: Array<{
+      input: string
+      expectedOutput: string
+      description: string
+    }>
+    hints: string[]
   }
 }
 
-// Mock lesson data
-const MOCK_LESSON: Lesson = {
-  id: 'lesson-1',
-  title: 'Understanding Solana Accounts',
-  description: 'Learn about Solana accounts and how they work',
-  type: 'challenge',
-  content: `# Understanding Solana Accounts
+interface Module {
+  id: string
+  title: string
+  lessons: Lesson[]
+  order: number
+}
 
-## What is an Account?
+interface CourseData {
+  id: string
+  title: string
+  slug: string
+  modules: Module[]
+}
 
-In Solana, an account is a record that stores state on the blockchain. Everything from user balances to program data is stored in accounts.
+export default function LessonPage() {
+  const params = useParams()
+  const router = useRouter()
+  const { data: session } = useSession()
+  const [course, setCourse] = useState<CourseData | null>(null)
+  const [lesson, setLesson] = useState<Lesson | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [code, setCode] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const { stats, refetch } = useGamification(refreshTrigger)
 
-### Key Characteristics:
-- **Address**: Public key that uniquely identifies the account
-- **Owner**: Program that has authority over the account
-- **Lamports**: Amount of SOL (in lamports) stored in the account
-- **Data**: Arbitrary data stored in the account
-- **Executable**: Whether the account contains a program
+  const courseSlug = params.slug as string
+  const lessonId = params.id as string
 
-## Your Challenge
-
-Create a simple Rust program that initializes a counter account. The counter should start at 0 and have an increment function.
-
-### Requirements:
-1. Define a Counter struct with a count field
-2. Add a function to increment the counter
-3. Implement default initialization`,
-  order: 1,
-  xpReward: 50,
-  videoUrl: undefined,
-  challenge: {
-    prompt:
-      'Create a Counter program in Rust that can be incremented. Your program should compile and pass all test cases.',
-    starterCode: `use anchor_lang::prelude::*;
-
-declare_id!("11111111111111111111111111111111");
-
-#[program]
-pub mod counter {
-    use super::*;
-
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        let counter = &mut ctx.accounts.counter;
-        counter.count = 0;
-        Ok(())
+  useEffect(() => {
+    async function loadCourse() {
+      const service = getCourseServiceInstance()
+      const courseData = await service.getCourse(courseSlug)
+      if (courseData) {
+        setCourse(courseData as any)
+        
+        // Find the lesson
+        for (const module of (courseData as any).modules) {
+          const foundLesson = module.lessons.find((l: Lesson) => l.id === lessonId)
+          if (foundLesson) {
+            setLesson(foundLesson)
+            setCode(foundLesson.challenge?.starterCode || '')
+            break
+          }
+        }
+      }
+      setLoading(false)
     }
 
-    pub fn increment(ctx: Context<Increment>) -> Result<()> {
-        // TODO: Implement increment logic
-        Ok(())
-    }
-}
+    loadCourse()
+  }, [courseSlug, lessonId])
 
-#[derive(Accounts)]
-pub struct Initialize {
-    #[account(init, payer = user, space = 8 + 8)]
-    pub counter: Account<'info, Counter>,
-    #[account(mut)]
-    pub user: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neon-cyan mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading lesson...</p>
+        </div>
+      </div>
+    )
+  }
 
-#[derive(Accounts)]
-pub struct Increment {
-    #[account(mut)]
-    pub counter: Account<'info, Counter>,
-}
+  if (!course || !lesson) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Card className="p-8 text-center">
+          <h1 className="text-2xl font-bold mb-4">Lesson Not Found</h1>
+          <Link href="/courses">
+            <Button>Back to Courses</Button>
+          </Link>
+        </Card>
+      </div>
+    )
+  }
 
-#[account]
-pub struct Counter {
-    pub count: u64,
-}`,
-    testCases: [
-      {
-        input: 'Counter initialized at 0',
-        expectedOutput: 'count: 0',
-        description: 'Counter should initialize with count = 0',
-      },
-      {
-        input: 'Call increment()',
-        expectedOutput: 'count: 1',
-        description: 'After increment, count should be 1',
-      },
-      {
-        input: 'Call increment() twice',
-        expectedOutput: 'count: 2',
-        description: 'After two increments, count should be 2',
-      },
-    ],
-    solutionCode: `use anchor_lang::prelude::*;
+  const currentModuleIndex = course.modules.findIndex(m =>
+    m.lessons.some(l => l.id === lessonId)
+  )
+  const currentModule = course.modules[currentModuleIndex]
+  const lessonIndex = currentModule.lessons.findIndex(l => l.id === lessonId)
+  const previousLesson = lessonIndex > 0 ? currentModule.lessons[lessonIndex - 1] : null
+  const nextLesson = lessonIndex < currentModule.lessons.length - 1 ? currentModule.lessons[lessonIndex + 1] : null
 
-declare_id!("11111111111111111111111111111111");
-
-#[program]
-pub mod counter {
-    use super::*;
-
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        let counter = &mut ctx.accounts.counter;
-        counter.count = 0;
-        Ok(())
+  const handleSubmit = async () => {
+    if (!session?.user) {
+      alert('Please sign in to submit')
+      return
     }
 
-    pub fn increment(ctx: Context<Increment>) -> Result<()> {
-        let counter = &mut ctx.accounts.counter;
-        counter.count = counter.count
-            .checked_add(1)
-            .ok_or(ProgramError::InvalidArgument)?;
-        Ok(())
+    const userId = (session.user as any).id || session.user.email
+    if (!userId) {
+      alert('Unable to get user ID')
+      return
     }
-}
 
-#[derive(Accounts)]
-pub struct Initialize {
-    #[account(init, payer = user, space = 8 + 8)]
-    pub counter: Account<'info, Counter>,
-    #[account(mut)]
-    pub user: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct Increment {
-    #[account(mut)]
-    pub counter: Account<'info, Counter>,
-}
-
-#[account]
-pub struct Counter {
-    pub count: u64,
-}`,
-    hints: [
-      'The increment function should increment the counter.count field by 1',
-      'Use checked_add to safely add to a u64',
-      'The counter account needs to be mutable to update its state',
-      'Return Ok(()) on success or an error on failure',
-    ],
-  },
-}
-
-export default function LessonPage({ params }: LessonPageProps) {
-  const { t } = useI18n()
-  const [lesson, setLesson] = useState<Lesson>(MOCK_LESSON)
-  const [completed, setCompleted] = useState(false)
-  const [showHints, setShowHints] = useState(false)
-  const [showSolution, setShowSolution] = useState(false)
-
-  const handleCompleteLesson = () => {
-    setCompleted(true)
-    // TODO: Call learning progress service
+    setSubmitting(true)
+    const result = await submitLesson(userId, course.id, lesson.id, lesson.xpReward)
+    setSubmitting(false)
+    
+    if (result.success) {
+      alert(`✅ Challenge submitted!\n\nYou earned ${result.xpAwarded} XP!\nTotal XP: ${result.totalXp}\nLevel: ${result.level}`)
+      
+      // Refresh gamification stats
+      setRefreshTrigger(prev => prev + 1)
+      if (refetch) {
+        refetch(userId)
+      }
+    } else {
+      alert(`❌ ${result.message}`)
+    }
   }
 
   return (
-    <main className="min-h-screen py-12 bg-gray-50 dark:bg-inherit">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Link href={`/courses/${params.slug}`} className="text-neon-cyan hover:text-neon-cyan/70 mb-4 inline-block text-sm">
-            ← {t('common.back')}
-          </Link>
-
-          <div className="mb-6">
-            <h1 className="text-4xl font-display font-bold text-white mb-2">{lesson.title}</h1>
-            <p className="text-gray-400">{lesson.description}</p>
-          </div>
-
-          <ProgressBar value={40} showLabel />
+    <main className="min-h-screen bg-gray-50 dark:bg-inherit">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Breadcrumb */}
+        <div className="mb-8 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+          <Link href="/courses" className="hover:text-neon-cyan">Courses</Link>
+          <span>/</span>
+          <Link href={`/courses/${courseSlug}`} className="hover:text-neon-cyan">{course.title}</Link>
+          <span>/</span>
+          <span className="text-neon-cyan">{lesson.title}</span>
         </div>
 
-        {/* Lesson Content */}
-        {lesson.challenge ? (
-          // Challenge Layout - Split Pane on Desktop, Stacked on Mobile
-          <div className="flex flex-col lg:flex-row gap-6 h-auto lg:h-[calc(100vh-350px)]">
-            {/* Left Panel - Content */}
-            <div className="flex-1 flex flex-col min-w-0 lg:border-r lg:border-terminal-border lg:pr-6">
-              <div className="flex-1 overflow-auto space-y-6">
-                {/* Content Card */}
-                <Card className="flex-shrink-0">
-                  <div className="prose prose-invert max-w-none">
-                    <div
-                      className="text-gray-300 space-y-4"
-                      dangerouslySetInnerHTML={{
-                        __html: lesson.content?.replace(/##/g, '<h2 class="text-xl font-bold text-neon-cyan mt-6 mb-2">').replace(/^#/gm, '<h1 class="text-2xl font-bold text-neon-cyan mt-4 mb-2">') || '',
-                      }}
-                    />
-                  </div>
-
-                  {/* Hints */}
-                  {lesson.challenge?.hints && (
-                    <div className="mt-8 border-t border-terminal-border pt-6">
-                      <button
-                        onClick={() => setShowHints(!showHints)}
-                        className="text-neon-cyan hover:text-neon-cyan/70 font-semibold flex items-center gap-2"
-                      >
-                        <span>{showHints ? '▼' : '▶'}</span>
-                        {t('lesson.hints')}
-                      </button>
-                      {showHints && (
-                        <ul className="mt-4 space-y-2 text-gray-300 text-sm">
-                          {lesson.challenge.hints.map((hint, idx) => (
-                            <li key={idx} className="flex gap-3">
-                              <span className="text-neon-yellow">→</span>
-                              <span>{hint}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </Card>
-              </div>
-
-              {/* Mark Complete - Sticky at bottom on mobile */}
-              <div className="mt-6 border-t border-terminal-border pt-6 flex-shrink-0">
-                <Button
-                  variant={completed ? 'secondary' : 'primary'}
-                  onClick={handleCompleteLesson}
-                  className="w-full"
-                >
-                  {completed ? '✓ ' : ''}{t('lesson.markComplete')} (+{lesson.xpReward} XP)
-                </Button>
-              </div>
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{currentModule.title}</p>
+              <h1 className="text-4xl font-display font-bold text-gray-900 dark:text-white">
+                {lesson.title}
+              </h1>
             </div>
-
-            {/* Right Panel - Code Editor/Challenge */}
-            <div className="flex-1 flex flex-col min-w-0">
-              <div className="flex-1 overflow-auto">
-                <ChallengeRunner
-                  language="rust"
-                  starterCode={lesson.challenge.starterCode}
-                  testCases={lesson.challenge.testCases}
-                  solutionCode={lesson.challenge.solutionCode}
-                  onComplete={() => {
-                    handleCompleteLesson();
-                  }}
-                />
-              </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-600 dark:text-gray-400">XP Reward</p>
+              <p className="text-3xl font-bold text-neon-cyan">{lesson.xpReward}</p>
             </div>
           </div>
-        ) : (
-          // Non-challenge lesson layout - Full width
-          <div className="space-y-6">
-            <Card>
-              <div className="prose prose-invert max-w-none">
-                <div
-                  className="text-gray-300 space-y-4"
-                  dangerouslySetInnerHTML={{
-                    __html: lesson.content?.replace(/##/g, '<h2 class="text-xl font-bold text-neon-cyan mt-6 mb-2">').replace(/^#/gm, '<h1 class="text-2xl font-bold text-neon-cyan mt-4 mb-2">') || '',
+          {lesson.description && (
+            <p className="text-gray-600 dark:text-gray-400">{lesson.description}</p>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+          {/* Main Content */}
+          <div className="lg:col-span-2">
+            <Card className="p-8">
+              <div className="prose dark:prose-invert max-w-none">
+                <ReactMarkdown
+                  components={{
+                    h1: ({ node, ...props }) => <h1 className="text-3xl font-bold mb-4 text-gray-900 dark:text-white" {...props} />,
+                    h2: ({ node, ...props }) => <h2 className="text-2xl font-bold mb-3 mt-6 text-gray-900 dark:text-white" {...props} />,
+                    h3: ({ node, ...props }) => <h3 className="text-xl font-bold mb-2 mt-4 text-gray-900 dark:text-white" {...props} />,
+                    p: ({ node, ...props }) => <p className="mb-4 text-gray-700 dark:text-gray-300 leading-relaxed" {...props} />,
+                    ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-4 text-gray-700 dark:text-gray-300" {...props} />,
+                    ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-4 text-gray-700 dark:text-gray-300" {...props} />,
+                    li: ({ node, ...props }) => <li className="mb-2" {...props} />,
+                    code: ({ node, inline, ...props }: any) => 
+                      inline ? (
+                        <code className="bg-gray-200 dark:bg-terminal-surface px-2 py-1 rounded text-sm font-mono" {...props} />
+                      ) : (
+                        <code className="block bg-gray-900 dark:bg-black text-gray-100 p-4 rounded-lg overflow-x-auto mb-4 font-mono text-sm" {...props} />
+                      ),
+                    pre: ({ node, ...props }) => <pre className="mb-4" {...props} />,
                   }}
-                />
-              </div>
-
-              {/* Mark Complete */}
-              <div className="mt-8 border-t border-terminal-border pt-6">
-                <Button
-                  variant={completed ? 'secondary' : 'primary'}
-                  onClick={handleCompleteLesson}
-                  className="w-full"
                 >
-                  {completed ? '✓ ' : ''}{t('lesson.markComplete')} (+{lesson.xpReward} XP)
-                </Button>
-              </div>
-            </Card>
-
-            {/* Navigation */}
-            <Card>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" className="flex-1">
-                  {t('lesson.previousLesson')}
-                </Button>
-                <Button variant="secondary" size="sm" className="flex-1">
-                  {t('lesson.nextLesson')}
-                </Button>
+                  {lesson.content}
+                </ReactMarkdown>
               </div>
             </Card>
           </div>
+
+          {/* Sidebar */}
+          <div className="lg:col-span-1">
+            {/* Module Progress */}
+            <Card className="p-6 mb-6">
+              <h3 className="font-bold text-gray-900 dark:text-white mb-4">Module Progress</h3>
+              <div className="space-y-2">
+                {currentModule.lessons.map((l, idx) => (
+                  <Link
+                    key={l.id}
+                    href={`/courses/${courseSlug}/lessons/${l.id}`}
+                    className={`block p-3 rounded-lg transition-colors ${
+                      l.id === lessonId
+                        ? 'bg-neon-cyan text-black font-semibold'
+                        : 'bg-gray-100 dark:bg-terminal-surface text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-terminal-surface/80'
+                    }`}
+                  >
+                    <p className="text-sm">{idx + 1}. {l.title}</p>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+
+            {/* Lesson Info */}
+            <Card className="p-6">
+              <h3 className="font-bold text-gray-900 dark:text-white mb-4">Lesson Info</h3>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-gray-600 dark:text-gray-400">Type</p>
+                  <p className="font-semibold text-gray-900 dark:text-white capitalize">{lesson.type}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600 dark:text-gray-400">XP Reward</p>
+                  <p className="font-semibold text-neon-cyan">{lesson.xpReward} XP</p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        {/* Challenge Editor (if challenge type) */}
+        {lesson.type === 'challenge' && lesson.challenge && (
+          <Card className="p-8 mb-12">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Code Challenge</h2>
+            
+            {/* Hints */}
+            {lesson.challenge.hints.length > 0 && (
+              <div className="mb-6 p-4 bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-lg">
+                <p className="font-semibold text-blue-900 dark:text-blue-300 mb-2">💡 Hints:</p>
+                <ul className="list-disc list-inside space-y-1 text-blue-800 dark:text-blue-200 text-sm">
+                  {lesson.challenge.hints.map((hint, idx) => (
+                    <li key={idx}>{hint}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Code Editor */}
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                Your Code
+              </label>
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="w-full h-64 p-4 bg-gray-900 dark:bg-black text-gray-100 font-mono text-sm rounded-lg border border-gray-700 focus:border-neon-cyan"
+                placeholder="Write your code here..."
+              />
+            </div>
+
+            {/* Submit Button */}
+            <Button onClick={handleSubmit} disabled={submitting} className="w-full">
+              {submitting ? 'Submitting...' : `Submit Challenge & Earn ${lesson.xpReward} XP`}
+            </Button>
+          </Card>
         )}
+
+        {/* Navigation */}
+        <div className="flex gap-4">
+          {previousLesson ? (
+            <Link href={`/courses/${courseSlug}/lessons/${previousLesson.id}`} className="flex-1">
+              <Button variant="secondary" className="w-full">
+                ← Previous: {previousLesson.title}
+              </Button>
+            </Link>
+          ) : (
+            <div className="flex-1" />
+          )}
+          
+          {nextLesson ? (
+            <Link href={`/courses/${courseSlug}/lessons/${nextLesson.id}`} className="flex-1">
+              <Button className="w-full">
+                Next: {nextLesson.title} →
+              </Button>
+            </Link>
+          ) : (
+            <Link href={`/courses/${courseSlug}`} className="flex-1">
+              <Button className="w-full">
+                Back to Course
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
     </main>
   )

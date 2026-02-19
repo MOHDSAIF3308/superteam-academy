@@ -6,9 +6,20 @@ import Link from 'next/link'
 import { useState } from 'react'
 
 export function AuthButtons() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
+
+  if (status === 'loading') {
+    return (
+      <button
+        disabled
+        className="px-3 py-1 bg-gray-200 dark:bg-terminal-surface text-gray-500 dark:text-gray-400 rounded text-sm font-semibold cursor-not-allowed"
+      >
+        Loading...
+      </button>
+    )
+  }
 
   if (session?.user) {
     return (

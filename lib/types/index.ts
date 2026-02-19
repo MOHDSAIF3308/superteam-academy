@@ -27,6 +27,7 @@ export interface User {
 export interface Course {
   id: string
   slug: string
+  onchainCourseId?: string
   title: string
   description: string
   difficulty: 'beginner' | 'intermediate' | 'advanced'
@@ -96,6 +97,8 @@ export interface UserStats {
   totalLessonsCompleted: number
   totalCoursesCompleted: number
   joinDate: Date
+  lessonsCompletedToday?: number
+  achievementsUnlocked?: number
 }
 
 export interface Achievement {
@@ -104,6 +107,7 @@ export interface Achievement {
   description: string
   icon: string
   category: 'progress' | 'streak' | 'skill' | 'community' | 'special'
+  rarity?: 'common' | 'rare' | 'epic' | 'legendary'
   unlockedAt?: Date
 }
 

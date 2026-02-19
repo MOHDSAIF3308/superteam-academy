@@ -1,5 +1,11 @@
-import { PublicKey } from '@solana/web3.js'
-import { WalletContextState } from '@solana/wallet-adapter-react'
+'use client'
+
+import { useWalletModal } from '@solana/wallet-adapter-react-ui'
+import {
+  useWallet as useWalletAdapter,
+  useConnection,
+} from '@solana/wallet-adapter-react'
+import { useCallback } from 'react'
 
 /**
  * Custom hook to manage Solana wallet connection state
@@ -8,36 +14,44 @@ import { WalletContextState } from '@solana/wallet-adapter-react'
  * @returns Wallet context with connection state, signer, and TX submission
  */
 export function useWallet() {
-  // In a real implementation, this would wrap:
-  // import { useWallet as useAdapterWallet } from '@solana/wallet-adapter-react'
-  // const adapter = useAdapterWallet()
-  //
-  // But for now, return interface of what's expected:
+  const {
+    wallet,
+    publicKey,
+    connected,
+    connecting,
+    disconnecting,
+    connect,
+    disconnect,
+    sendTransaction,
+  } = useWalletAdapter()
+
+  const { connection } = useConnection()
+  const { setVisible } = useWalletModal()
+
+  const openWalletModal = useCallback(() => {
+    setVisible(true)
+  }, [setVisible])
 
   return {
     // Connection state
-    wallet: null as any, // Connected wallet object
-    publicKey: null as PublicKey | null, // User's wallet address
-    connected: false, // Boolean flag
+    wallet,
+    publicKey,
+    connected,
+    connecting,
+    disconnecting,
 
     // Actions
-    connect: async () => {
-      throw new Error('Wallet not connected. Implement useAdapterWallet() first.')
-    },
-    disconnect: async () => {
-      throw new Error('Wallet not connected.')
-    },
+    openWalletModal,
+    connect,
+    disconnect,
+    sendTransaction,
+    connection,
 
-    // Transaction signing
-    sendTransaction: async (tx: Buffer, connection: any) => {
-      throw new Error('Implement TX signing.')
-    },
-
-    // Helper: Check if wallet is ready
-    isReady: () => false,
-
-    // Helper: Get wallet public key as string
-    getPublicKeyString: () => null,
+    // Helpers
+    walletAddress: publicKey?.toBase58() || null,
+    isConnecting: connecting || disconnecting,
+    isReady: () => connected && publicKey !== null,
+    getPublicKeyString: () => publicKey?.toBase58() || null,
   }
 }
 

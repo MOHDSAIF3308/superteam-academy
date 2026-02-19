@@ -1,8 +1,8 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 import { Header, Footer } from '@/components/layout'
-import { ThemeProvider, WalletProvider, AuthProvider } from '@/components/providers'
+import { ThemeProvider, WalletProvider, AuthProvider, QueryProvider } from '@/components/providers'
 import { I18nProvider } from '@/lib/hooks/useI18n'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
@@ -12,6 +12,9 @@ const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-displ
 export const metadata: Metadata = {
   title: 'Superteam Academy - Learn Solana Development',
   description: 'Interactive learning platform for Solana developers with interactive courses, gamification, and on-chain credentials.',
+}
+
+export const viewport: Viewport = {
   colorScheme: 'light dark',
 }
 
@@ -23,17 +26,19 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${jetbrains.variable} ${spaceGrotesk.variable} font-sans bg-white dark:bg-terminal-bg text-foreground transition-colors duration-200`}>
-        <AuthProvider>
-          <WalletProvider>
-            <ThemeProvider>
-              <I18nProvider>
-                <Header />
-                <main>{children}</main>
-                <Footer />
-              </I18nProvider>
-            </ThemeProvider>
-          </WalletProvider>
-        </AuthProvider>
+        <QueryProvider>
+          <AuthProvider>
+            <WalletProvider>
+              <ThemeProvider>
+                <I18nProvider>
+                  <Header />
+                  <main>{children}</main>
+                  <Footer />
+                </I18nProvider>
+              </ThemeProvider>
+            </WalletProvider>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   )

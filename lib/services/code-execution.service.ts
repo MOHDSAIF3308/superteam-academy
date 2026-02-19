@@ -89,10 +89,42 @@ export class CodeExecutionService {
   }
 
   /**
-   * Execute Rust code via backend (not available in Phase 2)
+   * Execute Rust code via backend
    */
   static async executeRust(code: string): Promise<ExecutionOutput> {
-    throw new Error('Rust execution requires backend support (coming in Phase 3)')
+    try {
+      const response = await fetch('/api/code-execution/rust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, language: 'rust' }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        return {
+          stdout: '',
+          stderr: error.message || 'Execution failed',
+          executionTime: 0,
+          success: false,
+        }
+      }
+
+      const result = await response.json()
+      return {
+        stdout: result.stdout || '',
+        stderr: result.stderr || '',
+        executionTime: result.compileTime || 0,
+        success: result.success !== false,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Execution failed'
+      return {
+        stdout: '',
+        stderr: message,
+        executionTime: 0,
+        success: false,
+      }
+    }
   }
 
   /**
@@ -115,4 +147,44 @@ export class CodeExecutionService {
         throw new Error(`Unsupported language: ${language}`)
     }
   }
+
+  /**
+   * Execute Anchor program code
+   */
+  static async executeAnchor(code: string): Promise<ExecutionOutput> {
+    try {
+      const response = await fetch('/api/code-execution/rust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, language: 'anchor' }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        return {
+          stdout: '',
+          stderr: error.message || 'Execution failed',
+          executionTime: 0,
+          success: false,
+        }
+      }
+
+      const result = await response.json()
+      return {
+        stdout: result.stdout || '',
+        stderr: result.stderr || '',
+        executionTime: result.compileTime || 0,
+        success: result.success !== false,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Execution failed'
+      return {
+        stdout: '',
+        stderr: message,
+        executionTime: 0,
+        success: false,
+      }
+    }
+  }
 }
+

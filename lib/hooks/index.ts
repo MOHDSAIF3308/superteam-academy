@@ -6,3 +6,8 @@ export { useTheme } from './useTheme'
 export { useWallet } from './useWallet'
 export { useProgram } from './useProgram'
 export { useGamification } from './useGamification'
+
+// On-Chain Integration Hooks
+export { useCompleteLesson } from './useCompleteLesson'
+export { useUserProgress } from './useUserProgress'
+export { useLeaderboard as useOnChainLeaderboard } from './useLeaderboard'
