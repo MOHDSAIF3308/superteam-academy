@@ -9,8 +9,8 @@ const PROGRAM_IDL = {
   address: PROGRAM_ID.toBase58(),
 };
 
-function getProgram(provider: AnchorProvider) {
-  return new Program(PROGRAM_IDL as any, provider);
+function getProgram(provider: AnchorProvider): Program<any> {
+  return new Program<any>(PROGRAM_IDL as any, provider as any);
 }
 
 /**
@@ -95,7 +95,7 @@ export function useEnrollment(courseId?: string, learnerAddress?: PublicKey) {
 
       const [enrollmentPda] = getEnrollmentPda(courseId, learnerAddress);
 
-      const enrollment = await program.account.enrollment.fetchNullable(enrollmentPda);
+      const enrollment = await (program.account as any).enrollment.fetchNullable(enrollmentPda);
       return enrollment;
     },
     enabled: !!courseId && !!learnerAddress,
@@ -114,8 +114,8 @@ export function useCourses() {
       const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
       const program = getProgram(provider);
 
-      const courses = await program.account.course.all();
-      return courses.filter((c) => c.account.isActive).map((c) => c.account);
+      const courses = await (program.account as any).course.all();
+      return courses.filter((c: any) => c.account.isActive).map((c: any) => c.account);
     },
   });
 }
@@ -135,7 +135,7 @@ export function useCourse(courseId?: string) {
       const program = getProgram(provider);
 
       const [coursePda] = getCoursePda(courseId);
-      return await program.account.course.fetch(coursePda);
+      return await (program.account as any).course.fetch(coursePda);
     },
     enabled: !!courseId,
   });

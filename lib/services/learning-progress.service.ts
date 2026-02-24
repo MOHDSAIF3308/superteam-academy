@@ -1,12 +1,18 @@
-import { PublicKey } from '@solana/web3.js'
+import { Connection, PublicKey } from '@solana/web3.js'
 import {
   Progress,
   UserStats,
-  Credential,
   Streak,
   LeaderboardEntry,
   ChallengeResult,
 } from '../types'
+import { OnchainCourseService, CourseProgress } from './onchain-course.service'
+import { XpService } from './xp.service'
+import { CredentialService } from './credential.service'
+import type { Credential as CredentialType } from '../types'
+import { getConfigPda } from '@/lib/anchor'
+import { Program, AnchorProvider } from '@coral-xyz/anchor'
+import { IDL, PROGRAM_ID } from '@/lib/anchor'
 
 /**
  * Learning Progress Service
@@ -45,8 +51,8 @@ export interface LearningProgressService {
   getUserRank(userId: string, timeframe: 'weekly' | 'monthly' | 'alltime'): Promise<number>
 
   // Credentials (cNFTs)
-  getCredentials(wallet: PublicKey): Promise<Credential[]>
-  getCredentialByTrack(wallet: PublicKey, track: string): Promise<Credential | null>
+  getCredentials(wallet: PublicKey): Promise<CredentialType[]>
+  getCredentialByTrack(wallet: PublicKey, track: string): Promise<CredentialType | null>
 
   // Achievements
   getAchievements(userId: string): Promise<string[]>
@@ -60,16 +66,92 @@ export interface LearningProgressService {
 }
 
 /**
- * Local implementation for MVP
- * Will be replaced with on-chain program calls
+ * Local implementation with on-chain integration
+ * Uses Anchor program for course progress and XP, mocks for streaks/leaderboard
  */
 export class LocalLearningProgressService implements LearningProgressService {
-  // Mock data storage
+  // Mock data storage (local-only)
   private progressMap = new Map<string, Progress>()
-  private userStatsMap = new Map<string, UserStats>()
   private streakMap = new Map<string, Streak>()
+  private leaderboardCache: LeaderboardEntry[] = []
+
+  // On-chain services (initialized on-demand)
+  private onchainCourseService: OnchainCourseService | null = null
+  private xpService: XpService | null = null
+  private credentialService: CredentialService | null = null
+  private baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+  
+  // Cached config values
+  private cachedXpMint: PublicKey | null = null
+  private connection: Connection | null = null
+  private program: Program<any> | null = null
+
+  constructor() {
+    // Initialize on-chain services on client side
+    if (typeof window !== 'undefined') {
+      try {
+        const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+        this.connection = new Connection(rpcUrl, 'confirmed')
+        this.onchainCourseService = new OnchainCourseService(this.connection)
+        this.xpService = new XpService(this.connection)
+        const heliusRpc = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || rpcUrl
+        this.credentialService = new CredentialService(heliusRpc)
+        // Initialize program for config fetching
+        const provider = new AnchorProvider(this.connection, {} as any, { commitment: 'confirmed' })
+        this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any)
+      } catch (error) {
+        console.warn('Could not initialize on-chain services:', error)
+      }
+    }
+  }
+
+  private async getXpMint(): Promise<PublicKey | null> {
+    // Return cached value if available
+    if (this.cachedXpMint) {
+      return this.cachedXpMint
+    }
+
+    // Fetch XP mint from config
+    if (this.program) {
+      try {
+        const [configPda] = getConfigPda()
+        const config = await (this.program.account as any).config.fetch(configPda)
+        this.cachedXpMint = config.xpMint
+        return this.cachedXpMint
+      } catch (error) {
+        console.error('Failed to fetch XP mint from config:', error)
+      }
+    }
+
+    return null
+  }
 
   async getProgress(userId: string, courseId: string): Promise<Progress> {
+    // Try to fetch from on-chain first
+    if (this.onchainCourseService) {
+      try {
+        const walletPubkey = new PublicKey(userId)
+        const courseProgress = await this.onchainCourseService.getCourseProgress(
+          courseId,
+          walletPubkey
+        )
+
+        if (courseProgress) {
+          return {
+            userId,
+            courseId,
+            enrolledAt: new Date(courseProgress.enrolledAt * 1000),
+            completedLessons: courseProgress.completedLessonIndices,
+            completionPercentage: courseProgress.progress,
+            completedAt: courseProgress.completedAt ? new Date(courseProgress.completedAt * 1000) : undefined,
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch on-chain progress for ${courseId}:`, error)
+      }
+    }
+
+    // Fallback to local storage
     const key = `${userId}:${courseId}`
     return (
       this.progressMap.get(key) || {
@@ -87,21 +169,32 @@ export class LocalLearningProgressService implements LearningProgressService {
     courseId: string,
     lessonIndex: number
   ): Promise<void> {
-    const key = `${userId}:${courseId}`
-    const progress = await this.getProgress(userId, courseId)
+    // Call backend signer API to complete lesson on-chain
+    try {
+      const response = await fetch(`${this.baseUrl}/onchain/complete-lesson`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Authorization header should be added by the caller
+        },
+        body: JSON.stringify({
+          courseId,
+          lessonIndex,
+        }),
+      })
 
-    if (!progress.completedLessons.includes(lessonIndex)) {
-      progress.completedLessons.push(lessonIndex)
-      this.progressMap.set(key, progress)
+      if (!response.ok) {
+        throw new Error(`Failed to complete lesson: ${response.statusText}`)
+      }
 
-      // Update streak
+      const result = await response.json()
+      console.log(`✅ Lesson ${lessonIndex} completed on-chain: ${result.txId}`)
+
+      // Update local streak
       await this.updateStreak(userId)
-
-      // Award XP
-      const stats = await this.getUserStats(userId)
-      stats.totalXp += 25 // Default XP per lesson
-      stats.totalLessonsCompleted += 1
-      this.userStatsMap.set(userId, stats)
+    } catch (error) {
+      console.error('Error completing lesson:', error)
+      throw error
     }
   }
 
@@ -111,28 +204,47 @@ export class LocalLearningProgressService implements LearningProgressService {
   }
 
   async getXP(userId: string): Promise<number> {
-    const stats = await this.getUserStats(userId)
-    return stats.totalXp
+    // Fetch from on-chain if available (userId is wallet address)
+    if (this.xpService) {
+      try {
+        const walletPubkey = new PublicKey(userId)
+        const xpMint = await this.getXpMint()
+        if (!xpMint) {
+          console.warn('Could not fetch XP mint address')
+          return 0
+        }
+        const xpBalances = await this.xpService.getXpBalances([walletPubkey], xpMint)
+        return xpBalances.get(userId) || 0
+      } catch (error) {
+        console.warn('Failed to fetch on-chain XP:', error)
+      }
+    }
+
+    // Fallback to computed value
+    return 0
   }
 
   async getLevel(userId: string): Promise<number> {
     const xp = await this.getXP(userId)
-    return Math.floor(Math.sqrt(xp / 100))
+    // Level calculation: each level requires ~100 * level XP
+    return XpService.calculateLevel(xp)
   }
 
   async getUserStats(userId: string): Promise<UserStats> {
-    return (
-      this.userStatsMap.get(userId) || {
-        userId,
-        totalXp: 0,
-        level: 0,
-        currentStreak: 0,
-        longestStreak: 0,
-        totalLessonsCompleted: 0,
-        totalCoursesCompleted: 0,
-        joinDate: new Date(),
-      }
-    )
+    const totalXp = await this.getXP(userId)
+    const level = await this.getLevel(userId)
+    const streak = await this.getStreak(userId)
+
+    return {
+      userId,
+      totalXp,
+      level,
+      currentStreak: streak.currentStreak,
+      longestStreak: streak.longestStreak,
+      totalLessonsCompleted: 0, // Would need to sum across all courses
+      totalCoursesCompleted: 0, // Would need to query on-chain
+      joinDate: new Date(),
+    }
   }
 
   async getStreak(userId: string): Promise<Streak> {
@@ -180,21 +292,8 @@ export class LocalLearningProgressService implements LearningProgressService {
     timeframe: 'weekly' | 'monthly' | 'alltime',
     limit: number = 100
   ): Promise<LeaderboardEntry[]> {
-    const entries = Array.from(this.userStatsMap.entries())
-      .map(([userId, stats]) => ({
-        rank: 0,
-        userId,
-        username: `User ${userId.slice(0, 4)}`,
-        totalXp: stats.totalXp,
-        level: stats.level,
-        currentStreak: 0,
-        coursesCompleted: stats.totalCoursesCompleted,
-      }))
-      .sort((a, b) => b.totalXp - a.totalXp)
-      .slice(0, limit)
-      .map((entry, idx) => ({ ...entry, rank: idx + 1 }))
-
-    return entries
+    // Return cached leaderboard (in production, would fetch from on-chain or indexer)
+    return this.leaderboardCache.slice(0, limit)
   }
 
   async getLeaderboardByTrack(
@@ -213,12 +312,66 @@ export class LocalLearningProgressService implements LearningProgressService {
     return leaderboard.find((e) => e.userId === userId)?.rank || 0
   }
 
-  async getCredentials(_wallet: PublicKey): Promise<Credential[]> {
-    // Stub: In production, query Helius DAS API or custom indexer
+  async getCredentials(wallet: PublicKey): Promise<CredentialType[]> {
+    // Fetch from on-chain via Helius DAS API
+    if (this.credentialService) {
+      try {
+        const onChainCredentials = await this.credentialService.getCredentials(wallet)
+        // Map on-chain credentials to frontend Credential type
+        return onChainCredentials.map(cred => ({
+          id: cred.assetId,
+          type: 'cNFT' as const,
+          track: cred.trackId,
+          level: cred.level,
+          mintAddress: cred.assetId,
+          metadata: {
+            name: cred.name,
+            symbol: 'CRED',
+            uri: '', // Would need to fetch from on-chain
+          },
+          issuedAt: new Date(cred.mintedAt),
+          issuedToWallet: wallet.toString(),
+          verificationUrl: `https://explorer.solana.com/address/${cred.assetId}`,
+        }))
+      } catch (error) {
+        console.warn('Failed to fetch on-chain credentials:', error)
+      }
+    }
+    // Fallback: empty array
     return []
   }
 
-  async getCredentialByTrack(_wallet: PublicKey, _track: string): Promise<Credential | null> {
+  async getCredentialByTrack(
+    wallet: PublicKey,
+    track: string
+  ): Promise<CredentialType | null> {
+    // Fetch specific credential by track from on-chain
+    if (this.credentialService) {
+      try {
+        const onChainCredentials = await this.credentialService.getCredentials(wallet)
+        const matching = onChainCredentials.find(c => c.trackId === track)
+        if (matching) {
+          return {
+            id: matching.assetId,
+            type: 'cNFT' as const,
+            track: matching.trackId,
+            level: matching.level,
+            mintAddress: matching.assetId,
+            metadata: {
+              name: matching.name,
+              symbol: 'CRED',
+              uri: '',
+            },
+            issuedAt: new Date(matching.mintedAt),
+            issuedToWallet: wallet.toString(),
+            verificationUrl: `https://explorer.solana.com/address/${matching.assetId}`,
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch credential for track ${track}:`, error)
+      }
+    }
+    // Fallback: null
     return null
   }
 

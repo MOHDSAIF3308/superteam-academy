@@ -14,10 +14,10 @@ export function useConfig() {
     queryKey: ['config:onchain'],
     queryFn: async () => {
       const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
-      const program = new Program(IDL as any, PROGRAM_ID, provider);
+      const program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
 
       const [configPda] = getConfigPda();
-      return await program.account.config.fetch(configPda);
+      return await (program.account as any).config.fetch(configPda);
     },
     staleTime: 10 * 60 * 1000, // 10 minutes
   });

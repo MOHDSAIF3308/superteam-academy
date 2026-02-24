@@ -32,3 +32,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# security - keypair files
+wallets/
+*.json.keypair
+
+# build artifacts
+programs/*/target/
+/target/
+Cargo.lock

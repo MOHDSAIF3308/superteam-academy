@@ -7,7 +7,7 @@ pub mod state;
 use errors::AcademyError;
 use state::*;
 
-declare_id!("11111111111111111111111111111111");
+declare_id!("2JEFfbRwBqZB3nf5JkTGsievs43CDuGettfzBWzf94Mw");
 
 #[program]
 pub mod academy {
@@ -139,7 +139,7 @@ pub mod academy {
     }
 
     /// Close enrollment account (reclaims rent)
-    pub fn close_enrollment(ctx: Context<CloseEnrollment>) -> Result<()> {
+    pub fn close_enrollment(ctx: Context<CloseEnrollmentAccounts>) -> Result<()> {
         instructions::close_enrollment(ctx)
     }
 }

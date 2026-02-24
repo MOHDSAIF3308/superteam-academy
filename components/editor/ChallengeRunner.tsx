@@ -5,6 +5,7 @@ import { CodeEditor } from './CodeEditor'
 import { TestResults } from './TestResults'
 import { Button, Card } from '@/components/ui'
 import { useI18n } from '@/lib/hooks/useI18n'
+import { useAwardXP } from '@/lib/hooks/useAwardXP'
 import { TestRunnerService } from '@/lib/services/test-runner.service'
 import type { TestCase as ServiceTestCase, TestRunnerResult } from '@/lib/services/test-runner.service'
 
@@ -21,6 +22,9 @@ interface ChallengeRunnerProps {
   testCases: TestCase[]
   solutionCode?: string
   onComplete?: () => void
+  courseId?: string
+  lessonId?: string
+  xpReward?: number
 }
 
 export function ChallengeRunner({
@@ -29,13 +33,18 @@ export function ChallengeRunner({
   testCases,
   solutionCode,
   onComplete,
+  courseId,
+  lessonId,
+  xpReward = testCases.length * 25,
 }: ChallengeRunnerProps) {
   const { t } = useI18n()
+  const { awardXP, isAwarding, error: xpError, isAuthenticated } = useAwardXP()
   const [code, setCode] = useState(starterCode)
   const [result, setResult] = useState<TestRunnerResult | null>(null)
   const [showSolution, setShowSolution] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [xpClaimed, setXpClaimed] = useState(false)
 
   const executeCode = async (userCode: string) => {
     setIsExecuting(true)
@@ -72,6 +81,36 @@ export function ChallengeRunner({
 
   const handleRun = (userCode: string) => {
     executeCode(userCode)
+  }
+
+  const handleClaimRewards = async () => {
+    if (!isAuthenticated) {
+      setError('Please sign in to claim rewards')
+      return
+    }
+
+    if (!courseId || !lessonId) {
+      setError('Course or lesson information missing')
+      return
+    }
+
+    const xpResult = await awardXP({
+      courseId,
+      lessonId,
+      xpAmount: xpReward,
+    })
+
+    if (xpResult.success) {
+      setXpClaimed(true)
+      alert(
+        `🎉 Rewards Claimed!\n\n` +
+        `XP Awarded: +${xpResult.xpAwarded}\n` +
+        `Total XP: ${xpResult.totalXp}\n` +
+        `Level: ${xpResult.level}`
+      )
+    } else {
+      setError(xpResult.message)
+    }
   }
 
   return (
@@ -124,11 +163,11 @@ export function ChallengeRunner({
       </div>
 
       {/* Error Messages */}
-      {error && (
+      {(error || xpError) && (
         <Card className="border-red-500/50 bg-red-500/5">
           <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
             <p className="text-red-400 font-semibold">⚠️ Error</p>
-            <p className="text-red-300 text-sm mt-2">{error}</p>
+            <p className="text-red-300 text-sm mt-2">{error || xpError}</p>
           </div>
         </Card>
       )}
@@ -170,9 +209,21 @@ export function ChallengeRunner({
               <div className="text-5xl mb-3">🎉</div>
               <h3 className="text-xl font-bold text-neon-green mb-2">Challenge Completed!</h3>
               <p className="text-gray-300 mb-4">Great job! All tests passed.</p>
-              <Button variant="primary" size="md">
-                Claim Rewards (+{testCases.length * 25} XP)
+              <Button 
+                onClick={handleClaimRewards} 
+                disabled={isAwarding || xpClaimed}
+                variant="primary"
+                size="md"
+              >
+                {xpClaimed 
+                  ? '✅ Rewards Claimed'
+                  : isAwarding 
+                    ? 'Claiming Rewards...'
+                    : `Claim Rewards (+${xpReward} XP)`}
               </Button>
+              {!isAuthenticated && (
+                <p className="text-yellow-400 text-sm mt-3">Please sign in to claim rewards</p>
+              )}
             </div>
           )}
         </>

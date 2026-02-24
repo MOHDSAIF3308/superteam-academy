@@ -40,8 +40,8 @@ export class BackendSignerService {
       },
     };
 
-    const provider = new AnchorProvider(connection, backendWallet, { commitment: 'confirmed' });
-    this.program = new Program(IDL as any, PROGRAM_ID, provider);
+    const provider = new AnchorProvider(connection, backendWallet as any, { commitment: 'confirmed' });
+    this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
   }
 
   /**
@@ -66,8 +66,8 @@ export class BackendSignerService {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const config = await this.program.account.config.fetch(configPda);
-    const course = await this.program.account.course.fetch(coursePda);
+    const config = await (this.program.account as any).config.fetch(configPda);
+    const course = await (this.program.account as any).course.fetch(coursePda);
 
     const tx = await this.program.methods
       .completeLesson(lessonIndex)
@@ -110,7 +110,7 @@ export class BackendSignerService {
     const [coursePda] = getCoursePda(courseId);
     const [enrollmentPda] = getEnrollmentPda(courseId, learnerAddress);
 
-    const course = await this.program.account.course.fetch(coursePda);
+    const course = await (this.program.account as any).course.fetch(coursePda);
 
     const learnerXpAta = getAssociatedTokenAddressSync(
       xpMint,

@@ -8,6 +8,7 @@ import {
   Course as OnChainCourse,
   isCourseComplete,
   countCompletedLessons,
+  getCompletedLessonIndices,
 } from '@/lib/anchor';
 
 /**
@@ -18,7 +19,8 @@ import {
 export interface CourseProgress {
   courseId: string;
   lessonCount: number;
-  completedLessons: number;
+  completedLessons: number; // Count of completed lessons
+  completedLessonIndices: number[]; // Array of lesson indices
   progress: number; // 0-100
   isComplete: boolean;
   enrolledAt: number;
@@ -31,7 +33,7 @@ export class OnchainCourseService {
 
   constructor(connection: Connection) {
     const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
-    this.program = new Program(IDL as any, PROGRAM_ID, provider);
+    this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
   }
 
   /**
@@ -39,11 +41,11 @@ export class OnchainCourseService {
    */
   async getAllCourses(): Promise<OnChainCourse[]> {
     try {
-      const allCourses = await this.program.account.course.all();
+      const allCourses = await (this.program.account as any).course.all();
       return allCourses
-        .filter((c) => c.account.isActive)
-        .map((c) => c.account)
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .filter((c: any) => c.account.isActive)
+        .map((c: any) => c.account)
+        .sort((a: any, b: any) => b.createdAt - a.createdAt);
     } catch (error) {
       console.error('Error fetching courses:', error);
       throw error;
@@ -56,7 +58,7 @@ export class OnchainCourseService {
   async getCourse(courseId: string): Promise<OnChainCourse | null> {
     try {
       const [coursePda] = getCoursePda(courseId);
-      const course = await this.program.account.course.fetch(coursePda);
+      const course = await (this.program.account as any).course.fetch(coursePda);
       return course.isActive ? course : null;
     } catch (error) {
       console.error(`Error fetching course ${courseId}:`, error);
@@ -97,7 +99,7 @@ export class OnchainCourseService {
   ): Promise<(any) | null> {
     try {
       const [enrollmentPda] = getEnrollmentPda(courseId, learnerAddress);
-      return await this.program.account.enrollment.fetchNullable(enrollmentPda);
+      return await (this.program.account as any).enrollment.fetchNullable(enrollmentPda);
     } catch (error) {
       console.error(
         `Error fetching enrollment for ${courseId} and ${learnerAddress}:`,
@@ -126,6 +128,7 @@ export class OnchainCourseService {
       }
 
       const completedLessons = countCompletedLessons(enrollment.lessonFlags);
+      const completedLessonIndices = getCompletedLessonIndices(enrollment.lessonFlags, course.lessonCount);
       const progress = Math.round((completedLessons / course.lessonCount) * 100);
       const isComplete = isCourseComplete(enrollment.lessonFlags, course.lessonCount);
 
@@ -133,6 +136,7 @@ export class OnchainCourseService {
         courseId,
         lessonCount: course.lessonCount,
         completedLessons,
+        completedLessonIndices,
         progress,
         isComplete,
         enrolledAt: enrollment.enrolledAt,

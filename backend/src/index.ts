@@ -5,6 +5,7 @@ import path from 'path'
 import { initializeDatabase, closeDatabase } from './db'
 import authRoutes from './routes/auth.routes'
 import apiRoutes from './routes/api.routes'
+import onchainRoutes, { initializeSignerService } from './routes/onchain.routes'
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
 
@@ -30,6 +31,9 @@ app.use('/api', authRoutes)
 
 // ============= API Routes =============
 app.use('/api', apiRoutes)
+
+// ============= On-Chain Routes =============
+app.use('/api/onchain', onchainRoutes)
 
 // ============= 404 Handler =============
 app.use((req: Request, res: Response) => {
@@ -57,6 +61,10 @@ async function start() {
     await initializeDatabase()
     console.log('✅ Database initialized')
 
+    // Initialize on-chain signer service
+    initializeSignerService()
+    console.log('✅ On-chain signer service initialized')
+
     // Start server
     app.listen(PORT, () => {
       console.log(`✅ Backend running on http://localhost:${PORT}`)
@@ -81,6 +89,11 @@ async function start() {
       console.log(`   - GET    /api/blockchain/xp-balance/:wallet`)
       console.log(`   - GET    /api/blockchain/credentials/:wallet`)
       console.log(`   - GET    /api/blockchain/rank/:wallet`)
+      console.log(`   ON-CHAIN SIGNER:`)
+      console.log(`   - POST   /api/onchain/complete-lesson`)
+      console.log(`   - POST   /api/onchain/finalize-course`)
+      console.log(`   - POST   /api/onchain/issue-credential`)
+      console.log(`   - POST   /api/onchain/upgrade-credential`)
     })
   } catch (error) {
     console.error('❌ Failed to start server:', error)

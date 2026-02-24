@@ -27,7 +27,7 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Load IDL from file
-const idlPath = path.join(__dirname, '../../lib/anchor/academy.json')
+const idlPath = path.join(__dirname, '../../../lib/anchor/academy.json')
 let IDL: any
 try {
   const idlContent = fs.readFileSync(idlPath, 'utf-8')
@@ -60,7 +60,15 @@ export class TransactionService {
     // Initialize connection
     const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com'
     this.connection = new Connection(rpcUrl, 'confirmed')
-    this.programId = new PublicKey(process.env.ANCHOR_PROGRAM_ID || '11111111111111111111111111111111')
+    
+    // Use a valid placeholder public key if ANCHOR_PROGRAM_ID is not set
+    const programIdStr = process.env.ANCHOR_PROGRAM_ID || 'ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf'
+    try {
+      this.programId = new PublicKey(programIdStr)
+    } catch (error) {
+      console.warn('⚠️ Invalid ANCHOR_PROGRAM_ID in .env, using valid placeholder')
+      this.programId = new PublicKey('ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf')
+    }
 
     this.initialize()
   }
@@ -143,7 +151,14 @@ export class TransactionService {
     const course = this.getPda([Buffer.from('course'), Buffer.from(courseId)])
     const enrollment = this.getPda([Buffer.from('enrollment'), Buffer.from(courseId), userKey.toBuffer()])
     const learner = this.getPda([Buffer.from('learner'), userKey.toBuffer()])
-    const xpMint = new PublicKey(process.env.XP_TOKEN_MINT || '11111111111111111111111111111111')
+    const xpMintStr = process.env.XP_TOKEN_MINT || 'ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf'
+    let xpMint: PublicKey
+    try {
+      xpMint = new PublicKey(xpMintStr)
+    } catch (error) {
+      console.warn('⚠️ Invalid XP_TOKEN_MINT in .env, using placeholder')
+      xpMint = new PublicKey('ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf')
+    }
     const userXpAta = await getAssociatedTokenAddress(xpMint, userKey)
 
     try {

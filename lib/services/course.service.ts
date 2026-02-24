@@ -1,4 +1,6 @@
+import { Connection } from '@solana/web3.js'
 import { Course, Enrollment, LearningPath } from '../types'
+import { OnchainCourseService } from './onchain-course.service'
 
 export interface CourseService {
   getCourses(filters?: {
@@ -491,13 +493,72 @@ const LEARNING_PATHS: LearningPath[] = [
 export class LocalCourseService implements CourseService {
   private enrollments = new Map<string, Enrollment[]>()
   private baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+  private onchainService: OnchainCourseService | null = null
+
+  // Map on-chain difficulty number to string
+  private difficultyToString(difficulty: number): 'beginner' | 'intermediate' | 'advanced' {
+    const difficultyMap: Record<number, 'beginner' | 'intermediate' | 'advanced'> = {
+      0: 'beginner',
+      1: 'intermediate',
+      2: 'advanced',
+      3: 'advanced', // fallback
+    }
+    return difficultyMap[difficulty] || 'beginner'
+  }
+
+  constructor() {
+    // Only initialize onchain service on client side with a connection
+    if (typeof window !== 'undefined') {
+      try {
+        const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+        const connection = new Connection(rpcUrl, 'confirmed')
+        this.onchainService = new OnchainCourseService(connection)
+      } catch (error) {
+        console.warn('Could not initialize on-chain service, using mock data', error)
+      }
+    }
+  }
+
+  // Map on-chain courseId to mock course slug
+  private findMockCourseByOnChainId(onChainId: string): Course | undefined {
+    // Try to match by ID or find a course that represents this on-chain course
+    return MOCK_COURSES.find((c) => c.id === onChainId || c.id.includes(onChainId.slice(0, 8)))
+  }
 
   async getCourses(filters?: {
     difficulty?: string
     track?: string
     search?: string
   }): Promise<Course[]> {
-    let courses = [...MOCK_COURSES]
+    let courses: Course[] = []
+
+    // Try to fetch from on-chain, fall back to mock data
+    if (this.onchainService) {
+      try {
+        const onChainCourses = await this.onchainService.getAllCourses()
+        // Map on-chain courses to full Course objects using mock data as content source
+        courses = onChainCourses
+          .map((oc: any) => {
+            const mockCourse = this.findMockCourseByOnChainId(oc.id)
+            // If we have mock course, enrich it with on-chain data
+            if (mockCourse) {
+              return {
+                ...mockCourse,
+                difficulty: this.difficultyToString(oc.difficulty),
+              }
+            }
+            // Skip on-chain courses without mock content (they lack lesson details)
+            return undefined
+          })
+          .filter((c): c is Course => c !== undefined)
+      } catch (error) {
+        console.warn('Failed to fetch on-chain courses, using mock data:', error)
+        courses = [...MOCK_COURSES]
+      }
+    } else {
+      // Server-side or on-chain unavailable: use mock data
+      courses = [...MOCK_COURSES]
+    }
 
     if (filters?.difficulty) {
       courses = courses.filter((c) => c.difficulty === filters.difficulty)
@@ -520,7 +581,29 @@ export class LocalCourseService implements CourseService {
   }
 
   async getCourse(slug: string): Promise<Course | null> {
-    return MOCK_COURSES.find((c) => c.slug === slug) || null
+    // First try to find in mock courses by slug
+    let course = MOCK_COURSES.find((c) => c.slug === slug) || null
+
+    // If found, try to enrich with on-chain data
+    if (course && this.onchainService) {
+      try {
+        const onChainCourse = await this.onchainService.getCourse(course.id)
+        if (onChainCourse) {
+          // Merge on-chain metadata with mock course content
+          course = {
+            ...course,
+            difficulty: this.difficultyToString((onChainCourse as any).difficulty ?? 0),
+            // Keep mock lesson structure
+            modules: course.modules,
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch on-chain data for course ${slug}:`, error)
+        // Return mock course as fallback
+      }
+    }
+
+    return course
   }
 
   async getLearningPaths(): Promise<LearningPath[]> {

@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { useAnchorWallet, useConnection } from '@solana/wallet-adapter-react';
+import React from 'react';
+import { useAnchorWallet } from '@solana/wallet-adapter-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEnrollCourse, useCloseEnrollment } from '@/lib/hooks/useOnchain';
 import { useLearnerEnrollments, useCourse, useCourseProgress } from '@/lib/hooks/useCourses';
 import { useXpBalance, useCredentials } from '@/lib/hooks/useXp';
 import { useXpMint } from '@/lib/hooks/useConfig';
-import { Loading } from '@/components/ui/loading';
-import { Button } from '@/components/ui/button';
+import { Loading } from '@/components/ui/Loading';
+import { Button } from '@/components/ui';
 
 /**
  * Course Enrollment Card Component
@@ -16,7 +16,7 @@ export function CourseEnrollmentCard({ courseId }: { courseId: string }) {
   const wallet = useAnchorWallet();
   const queryClient = useQueryClient();
   const { data: course, isLoading: courseLoading } = useCourse(courseId);
-  const { data: enrollment } = useEnrollment(courseId, wallet?.publicKey);
+  const { data: enrollment } = useCourseProgress(courseId, wallet?.publicKey);
   const { mutate: enroll, isPending: enrolling } = useEnrollCourse();
   const { mutate: closeEnrollment, isPending: closing } = useCloseEnrollment();
 
@@ -85,14 +85,14 @@ export function CourseEnrollmentCard({ courseId }: { courseId: string }) {
                 />
               </div>
               <p className="text-xs text-gray-600 mt-1">
-                {enrollment.completedLessons}/{course.lessonCount} lessons
+                {enrollment?.completedLessons || 0}/{course.lessonCount} lessons
               </p>
             </div>
 
             <Button
               onClick={handleClose}
               disabled={closing}
-              variant="outline"
+              variant="secondary"
             >
               {closing ? 'Closing...' : 'Close'}
             </Button>
@@ -103,40 +103,4 @@ export function CourseEnrollmentCard({ courseId }: { courseId: string }) {
   );
 }
 
-/**
- * Import missing hook
- */
-function useEnrollment(courseId: string, learnerAddress: any) {
-  const { connection } = useConnection();
-  const { data, isLoading } = useQuery({
-    queryKey: ['enrollment', courseId, learnerAddress?.toString()],
-    queryFn: async () => {
-      if (!courseId || !learnerAddress) return null;
-      const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
-      const program = new Program(IDL as any, PROGRAM_ID, provider);
-      const [enrollmentPda] = getEnrollmentPda(courseId, learnerAddress);
-      return await program.account.enrollment.fetchNullable(enrollmentPda);
-    },
-    enabled: !!courseId && !!learnerAddress,
-  });
 
-  // Calculate progress
-  if (!data) return { data: null, isLoading };
-
-  const lessons = countCompletedLessons(data.lessonFlags);
-  
-  // Get course to know total lessons
-  return {
-    data: {
-      ...data,
-      completedLessons: lessons,
-    },
-    isLoading,
-  };
-}
-
-// Re-export missing imports needed
-import { useConnection } from '@solana/wallet-adapter-react';
-import { useQuery } from '@tanstack/react-query';
-import { Program, AnchorProvider } from '@coral-xyz/anchor';
-import { PROGRAM_ID, IDL, getEnrollmentPda, countCompletedLessons } from '@/lib/anchor';

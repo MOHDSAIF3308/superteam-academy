@@ -108,7 +108,7 @@ export class BlockchainService {
       keys: [
         { pubkey: params.userWallet, isSigner: true, isWritable: true },
       ],
-      programId: new PublicKey('11111111111111111111111111111111'),
+      programId: new PublicKey('ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf'),
       data: Buffer.from([]),
     })
   }
