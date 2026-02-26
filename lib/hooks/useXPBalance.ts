@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useConnection } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
+import { getAssociatedTokenAddressSync } from '@solana/spl-token'
+import { TOKEN_2022_PROGRAM_ID } from '@/lib/anchor/constants'
 
 /**
- * Fetch XP token balance for a learner from Helius DAS API
+ * Fetch XP token balance for a learner from Token-2022 ATA
  * Used for: Live XP display, leaderboard
  *
  * @param learnerAddress - Wallet address to check
@@ -10,13 +13,15 @@ import { PublicKey } from '@solana/web3.js'
  * @returns Current XP balance + refetch function
  */
 export function useXPBalance(learnerAddress?: PublicKey, xpTokenMint?: PublicKey) {
+  const { connection } = useConnection()
   const [balance, setBalance] = useState<number>(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
   const fetchBalance = useCallback(async () => {
     if (!learnerAddress || !xpTokenMint) {
-      setError(new Error('Missing learnerAddress or xpTokenMint'))
+      setBalance(0)
+      setError(null)
       return
     }
 
@@ -24,32 +29,34 @@ export function useXPBalance(learnerAddress?: PublicKey, xpTokenMint?: PublicKey
     setError(null)
 
     try {
-      // TODO: Implement Helius DAS API call
-      // Steps:
-      // 1. Derive token ATA for (xpTokenMint, learnerAddress)
-      // 2. Call Helius getAsset(ata) or call RPC getTokenAccountBalance()
-      // 3. Parse balance from response
-      // 4. Return balance in human-readable form (accounting for decimals)
+      const ata = getAssociatedTokenAddressSync(
+        xpTokenMint,
+        learnerAddress,
+        false,
+        TOKEN_2022_PROGRAM_ID
+      )
 
-      // Placeholder:
-      const ata = PublicKey.findProgramAddressSync(
-        [learnerAddress.toBuffer(), new PublicKey('TokenkegQfeZyiNwAJsyFbPVwwQQftrPbRUKJRZnb9').toBuffer(), xpTokenMint.toBuffer()],
-        new PublicKey('ATokenGPvbdGVqstVQmcLsNZAqeEgtVO3XuQ8M51oKwQn')
-      )[0]
-
-      // const response = await fetch(`https://api.helius.xyz/v0/token/accounts/${ata}`, {
-      //   headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_HELIUS_API_KEY}` }
-      // })
-      // const data = await response.json()
-      // setBalance(data.amount)
-
-      setBalance(0) // Default: no balance fetched yet
+      const accountBalance = await connection.getTokenAccountBalance(ata, 'confirmed')
+      setBalance(Number(accountBalance.value.amount))
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch balance'))
+      const message = err instanceof Error ? err.message : 'Failed to fetch balance'
+      const accountMissing =
+        message.includes('could not find account') || message.includes('Invalid param: could not find account')
+
+      if (accountMissing) {
+        setBalance(0)
+        setError(null)
+      } else {
+        setError(err instanceof Error ? err : new Error('Failed to fetch balance'))
+      }
     } finally {
       setIsLoading(false)
     }
-  }, [learnerAddress, xpTokenMint])
+  }, [connection, learnerAddress, xpTokenMint])
+
+  useEffect(() => {
+    void fetchBalance()
+  }, [fetchBalance])
 
   return {
     balance,

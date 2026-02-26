@@ -9,6 +9,7 @@ import { useWallet } from '@/lib/hooks/useWallet'
 import { useEnrollCourse, useEnrollment } from '@/lib/hooks/useOnchain'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 
 interface CourseDetailPageProps {
   params: {
@@ -18,9 +19,11 @@ interface CourseDetailPageProps {
 
 export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const router = useRouter()
+  const { data: session } = useSession()
   const { t } = useI18n()
   const [course, setCourse] = useState<Course | null>(null)
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
+  const [dbEnrolled, setDbEnrolled] = useState(false)
   const { connected, publicKey, openWalletModal } = useWallet()
   const { mutateAsync: enrollOnChain, isPending: enrolling } = useEnrollCourse()
   const onChainCourseId = course?.onchainCourseId || course?.slug || course?.id
@@ -38,8 +41,82 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     fetchCourse()
   }, [params.slug])
 
-  const isEnrolled = !!enrollment
+  const walletAddress = publicKey?.toBase58() || null
+  const userId =
+    ((session?.user as any)?.id as string | undefined) ||
+    session?.user?.email ||
+    walletAddress ||
+    null
+
+  useEffect(() => {
+    if (!course?.id || !userId) {
+      setDbEnrolled(false)
+      return
+    }
+    const currentUserId = userId
+    const currentCourseId = course.id
+
+    let cancelled = false
+
+    async function fetchDbEnrollmentStatus() {
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(currentUserId)}/enrollments`, {
+          cache: 'no-store',
+        })
+        if (!response.ok) return
+
+        const enrollments = await response.json()
+        if (cancelled || !Array.isArray(enrollments)) return
+
+        setDbEnrolled(enrollments.some((item: any) => String(item.courseId) === String(currentCourseId)))
+      } catch (error) {
+        console.warn('Failed to fetch DB enrollment status:', error)
+      }
+    }
+
+    void fetchDbEnrollmentStatus()
+
+    return () => {
+      cancelled = true
+    }
+  }, [course?.id, userId])
+
+  const isEnrolled = dbEnrolled || !!enrollment
   const firstLessonId = course?.modules[0]?.lessons[0]?.id
+
+  const ensureEnrollmentAndAwardXp = async (): Promise<boolean> => {
+    if (!userId || !course) return false
+
+    const enrollResponse = await fetch('/api/enrollments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, courseId: course.id }),
+    })
+
+    if (!enrollResponse.ok && enrollResponse.status !== 200) {
+      console.warn('Failed to create enrollment row for XP tracking')
+      return false
+    }
+    setDbEnrolled(true)
+
+    // Award one-time bonus when learner starts a new course.
+    const bonusResponse = await fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        courseId: course.id,
+        lessonId: `enroll-${course.id}`,
+        xpAmount: 25,
+      }),
+    })
+
+    if (!bonusResponse.ok && bonusResponse.status !== 400) {
+      console.warn('Failed to award enrollment XP bonus')
+    }
+
+    return true
+  }
 
   const handleStartCourse = async () => {
     if (!course) return
@@ -54,6 +131,11 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
       : null
 
     if (isEnrolled) {
+      try {
+        await ensureEnrollmentAndAwardXp()
+      } catch (error) {
+        console.warn('Could not sync enrollment XP data:', error)
+      }
       if (firstLessonPath) {
         router.push(firstLessonPath)
       }
@@ -63,8 +145,20 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     if (!onChainCourseId) return
 
     try {
-      await enrollOnChain({ courseId: onChainCourseId })
-      await refetchEnrollment()
+      const synced = await ensureEnrollmentAndAwardXp()
+      if (!synced) {
+        alert('Failed to save enrollment status. Please try again.')
+        return
+      }
+
+      try {
+        await enrollOnChain({ courseId: onChainCourseId })
+        await refetchEnrollment()
+      } catch (error) {
+        // Keep DB enrollment flow usable even if on-chain enrollment fails.
+        console.warn('On-chain enrollment failed, continuing with DB enrollment:', error)
+      }
+
       if (firstLessonPath) {
         router.push(firstLessonPath)
       }

@@ -4,7 +4,26 @@ import { PublicKey } from '@solana/web3.js';
  * On-chain Academy Program Configuration
  */
 
-export const PROGRAM_ID = new PublicKey('ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf');
+const DEFAULT_PROGRAM_ID = 'ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf';
+
+function resolveProgramId(): PublicKey {
+  const configuredId =
+    process.env.NEXT_PUBLIC_ANCHOR_PROGRAM_ID ||
+    process.env.ANCHOR_PROGRAM_ID ||
+    DEFAULT_PROGRAM_ID;
+
+  try {
+    return new PublicKey(configuredId);
+  } catch (error) {
+    console.warn(
+      `Invalid program id "${configuredId}", falling back to ${DEFAULT_PROGRAM_ID}`,
+      error
+    );
+    return new PublicKey(DEFAULT_PROGRAM_ID);
+  }
+}
+
+export const PROGRAM_ID = resolveProgramId();
 
 export const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 

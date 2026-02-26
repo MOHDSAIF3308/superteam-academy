@@ -1,7 +1,7 @@
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { Connection, PublicKey, Keypair, SystemProgram } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, MPL_CORE_PROGRAM_ID } from '@/lib/anchor/constants';
-import { PROGRAM_ID, IDL } from '@/lib/anchor';
+import { getProgram } from '@/lib/anchor';
 import {
   getConfigPda,
   getCoursePda,
@@ -41,7 +41,7 @@ export class BackendSignerService {
     };
 
     const provider = new AnchorProvider(connection, backendWallet as any, { commitment: 'confirmed' });
-    this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
+    this.program = getProgram(provider);
   }
 
   /**

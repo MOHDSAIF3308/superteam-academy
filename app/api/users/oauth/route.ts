@@ -6,11 +6,32 @@ function mapUser(user: any) {
     id: user.id,
     email: user.email,
     displayName: user.display_name,
-    avatar: user.avatar_url,
+    avatarUrl: user.avatar_url,
+    bio: user.bio ?? '',
+    walletAddress: user.wallet_address ?? null,
     totalXP: user.total_xp ?? 0,
     level: user.level ?? 1,
     currentStreak: user.current_streak ?? 0,
+    longestStreak: user.longest_streak ?? 0,
     createdAt: user.created_at,
+  }
+}
+
+async function upsertUserAge(supabase: any, userId: string, age: unknown) {
+  if (typeof age !== 'number' || !Number.isFinite(age)) return
+
+  try {
+    await supabase
+      .from('user_profiles')
+      .upsert(
+        {
+          user_id: userId,
+          age: Math.max(0, Math.floor(age)),
+        },
+        { onConflict: 'user_id' }
+      )
+  } catch {
+    // user_profiles is optional in some environments
   }
 }
 
@@ -39,7 +60,7 @@ export async function POST(request: NextRequest) {
     const displayName = profile.name || profile.login || 'User'
 
     const fields =
-      'id, email, display_name, avatar_url, total_xp, level, current_streak, created_at'
+      'id, email, display_name, avatar_url, bio, wallet_address, total_xp, level, current_streak, longest_streak, created_at'
 
     // Existing by id first (id is email in this project), fallback by email.
     let { data: existing } = await supabase
@@ -54,6 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (existing) {
+      await upsertUserAge(supabase, existing.id, profile.age)
       return NextResponse.json(mapUser(existing), { status: 200 })
     }
 
@@ -98,6 +120,8 @@ export async function POST(request: NextRequest) {
     if (!created.data) {
       return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })
     }
+
+    await upsertUserAge(supabase, created.data.id, profile.age)
 
     return NextResponse.json(mapUser(created.data), { status: 201 })
   } catch (error) {

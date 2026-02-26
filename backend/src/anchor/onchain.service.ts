@@ -43,7 +43,11 @@ export class BackendSignerService {
     };
 
     const provider = new AnchorProvider(connection, backendWallet as any, { commitment: 'confirmed' });
-    this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
+    const programIdl = {
+      ...(IDL as Record<string, unknown>),
+      address: PROGRAM_ID.toBase58(),
+    };
+    this.program = new Program<any>(programIdl as any, PROGRAM_ID as any, provider as any);
   }
 
   getBackendSignerPublicKey(): PublicKey {
@@ -258,8 +262,7 @@ export function createBackendSignerService(connection: Connection): BackendSigne
     return new BackendSignerService(connection, secretKey);
   } catch (error) {
     throw new Error(
-      `Invalid keypair: ${error instanceof Error ? error.message : 'unknown error'}. ` +
-      'Ensure BACKEND_SIGNER_SECRET_KEY contains a valid 64-byte Solana keypair.'
+      `Failed to initialize backend signer service: ${error instanceof Error ? error.message : 'unknown error'}.`
     );
   }
 }

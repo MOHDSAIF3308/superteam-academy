@@ -6,8 +6,13 @@ import { useAchievements } from '@/lib/hooks/useAchievements'
 import { Card, Button } from '@/components/ui'
 import { AchievementGrid, AchievementNotification } from '@/components/achievements'
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { useWallet } from '@/lib/hooks/useWallet'
+import { PublicKey } from '@solana/web3.js'
+import { useXPBalance } from '@/lib/hooks/useXPBalance'
+import { calculateLevel, Course as CatalogCourse } from '@/lib/types'
+import { getCourseService } from '@/lib/services'
 
 interface Enrollment {
   id: string
@@ -18,56 +23,54 @@ interface Enrollment {
   completedAt: string | null
 }
 
-interface Course {
-  id: string
-  slug: string
-  title: string
-  description: string
-  difficulty: 'beginner' | 'intermediate' | 'advanced'
-  duration: number
-  track: string
-  xpReward: number
-  enrollmentCount: number
-}
-
-const MOCK_COURSES: Record<string, Course> = {
-  'course-1': {
-    id: 'course-1',
-    slug: 'solana-fundamentals',
-    title: 'Solana Fundamentals',
-    description: 'Learn the core concepts of Solana blockchain',
-    difficulty: 'beginner',
-    duration: 180,
-    track: 'Core',
-    xpReward: 500,
-    enrollmentCount: 1250,
-  },
-  'course-2': {
-    id: 'course-2',
-    slug: 'anchor-development',
-    title: 'Anchor Development',
-    description: 'Master Anchor framework for building Solana programs',
-    difficulty: 'intermediate',
-    duration: 240,
-    track: 'Development',
-    xpReward: 1000,
-    enrollmentCount: 890,
-  },
-}
-
 export default function DashboardPage() {
   const router = useRouter()
   const { data: session, status } = useSession()
-  const { stats, loading: statsLoading } = useGamification()
+  const { connected, publicKey, walletAddress, openWalletModal } = useWallet()
+  const rawUserId =
+    ((session?.user as any)?.id as string | undefined) ||
+    session?.user?.email ||
+    walletAddress ||
+    null
+  const userId =
+    typeof rawUserId === 'string' && rawUserId.includes('@')
+      ? rawUserId.toLowerCase()
+      : rawUserId
+  const { stats, loading: statsLoading } = useGamification(undefined, { userId })
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
-  const [loading, setLoading] = useState(true)
+  const [coursesByKey, setCoursesByKey] = useState<Record<string, CatalogCourse>>({})
+  const [enrollmentsLoading, setEnrollmentsLoading] = useState(true)
+  const [coursesLoading, setCoursesLoading] = useState(true)
+  const xpMint = useMemo(() => {
+    const mintStr = process.env.NEXT_PUBLIC_XP_TOKEN_MINT
+    if (!mintStr) return undefined
+    try {
+      return new PublicKey(mintStr)
+    } catch {
+      return undefined
+    }
+  }, [])
+  const { balance: onChainXp, isLoading: onChainXpLoading } = useXPBalance(publicKey || undefined, xpMint)
+  const offChainXp = stats?.totalXP || 0
+  const totalXp = connected
+    ? (onChainXp > 0 ? onChainXp : offChainXp)
+    : offChainXp
+  const level = Math.max(stats?.level || 1, calculateLevel(totalXp), 1)
+  const currentLevelXp = level * level * 100
+  const nextLevelXp = (level + 1) * (level + 1) * 100
+  const xpInCurrentLevel = Math.max(totalXp - currentLevelXp, 0)
+  const xpNeededForNextLevel = Math.max(nextLevelXp - currentLevelXp, 100)
+  const xpPercentage = Math.min(
+    100,
+    Math.round((xpInCurrentLevel / xpNeededForNextLevel) * 100)
+  )
   
-  const completedCoursesCount = Array.isArray(enrollments) ? enrollments.filter(e => e.completedAt).length : 0
+  const completedCoursesCount = Array.isArray(enrollments) ? enrollments.filter((e) => e.completedAt).length : 0
   
   const { unlockedAchievements, newlyUnlocked, dismissNewlyUnlocked } = useAchievements({
-    userId: (session?.user as any)?.id || session?.user?.email || '',
+    userId: userId || 'guest',
     stats: {
-      totalXp: stats?.totalXP || 0,
+      totalXp,
       totalLessonsCompleted: stats?.lessonsCompleted || 0,
       totalCoursesCompleted: completedCoursesCount,
       currentStreak: stats?.currentStreak || 0,
@@ -83,32 +86,92 @@ export default function DashboardPage() {
   }, [status, session, router])
 
   useEffect(() => {
-    if (!session?.user) return
+    let cancelled = false
 
-    const userId = (session.user as any).id || session.user.email
-    if (!userId) return
+    async function fetchCourses() {
+      try {
+        const service = getCourseService()
+        const courses = await service.getCourses()
+        if (cancelled) return
 
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${userId}/enrollments`)
-      .then(r => r.json())
-      .then(data => {
-        setEnrollments(Array.isArray(data) ? data : [])
-      })
-      .catch(err => {
-        console.error('Failed to fetch enrollments:', err)
-        setEnrollments([])
-      })
-      .finally(() => setLoading(false))
-  }, [session?.user?.email])
+        const map: Record<string, CatalogCourse> = {}
+        for (const course of courses) {
+          map[course.id] = course
+          map[course.slug] = course
+          if (course.onchainCourseId) {
+            map[course.onchainCourseId] = course
+          }
+        }
+        setCoursesByKey(map)
+      } catch (error) {
+        console.warn('Failed to fetch courses for dashboard mapping:', error)
+      } finally {
+        if (!cancelled) {
+          setCoursesLoading(false)
+        }
+      }
+    }
 
-  if (status === 'unauthenticated') {
+    void fetchCourses()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!userId) {
+      setEnrollments([])
+      setEnrollmentsLoading(false)
+      return
+    }
+    const currentUserId = userId
+
+    let cancelled = false
+
+    async function fetchEnrollments() {
+      setEnrollmentsLoading(true)
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(currentUserId)}/enrollments`, {
+          cache: 'no-store',
+        })
+        const data = await response.json()
+        if (!cancelled) {
+          setEnrollments(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        console.error('Failed to fetch enrollments:', error)
+        if (!cancelled) {
+          setEnrollments([])
+        }
+      } finally {
+        if (!cancelled) {
+          setEnrollmentsLoading(false)
+        }
+      }
+    }
+
+    void fetchEnrollments()
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  if (status === 'unauthenticated' && !connected) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Card className="p-8 text-center max-w-md">
           <h1 className="text-2xl font-bold mb-4">Sign In to View Dashboard</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">Please sign in to view your progress</p>
-          <Link href="/auth/signin">
-            <Button className="w-full">Sign In</Button>
-          </Link>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">Sign in or connect your wallet to view progress</p>
+          <div className="space-y-3">
+            <Link href="/auth/signin" className="block">
+              <Button className="w-full">Sign In</Button>
+            </Link>
+            <Button variant="secondary" className="w-full" onClick={openWalletModal}>
+              Connect Wallet
+            </Button>
+          </div>
         </Card>
       </div>
     )
@@ -125,7 +188,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (statsLoading || loading) {
+  if (statsLoading || coursesLoading || enrollmentsLoading || (connected && onChainXpLoading)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -148,7 +211,7 @@ export default function DashboardPage() {
         {/* Welcome Section */}
         <div className="mb-12">
           <h1 className="text-4xl font-display font-bold text-gray-900 dark:text-white mb-2">
-            Welcome back, {session?.user?.name || 'Learner'}! 👋
+            Welcome back, {session?.user?.name || (walletAddress ? `${walletAddress.slice(0, 6)}...` : 'Learner')}! 👋
           </h1>
           <p className="text-gray-600 dark:text-gray-400">Keep learning and earning XP to level up</p>
         </div>
@@ -157,13 +220,13 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
           <Card className="p-6 border-l-4 border-neon-cyan">
             <p className="text-gray-600 dark:text-gray-400 text-sm font-medium mb-2">Total XP</p>
-            <p className="text-4xl font-bold text-neon-cyan">{stats?.totalXP || 0}</p>
+            <p className="text-4xl font-bold text-neon-cyan">{totalXp}</p>
             <p className="text-xs text-gray-500 mt-2">Keep grinding! 🚀</p>
           </Card>
 
           <Card className="p-6 border-l-4 border-neon-green">
             <p className="text-gray-600 dark:text-gray-400 text-sm font-medium mb-2">Level</p>
-            <p className="text-4xl font-bold text-neon-green">{stats?.level || 1}</p>
+            <p className="text-4xl font-bold text-neon-green">{level}</p>
             <p className="text-xs text-gray-500 mt-2">You're doing great! ⭐</p>
           </Card>
 
@@ -181,30 +244,28 @@ export default function DashboardPage() {
         </div>
 
         {/* Level Progress */}
-        {stats && (
-          <Card className="p-6 mb-12">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Level Progress</h2>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Level {stats.level}
-                </span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {stats.xpProgress.current} / {stats.xpProgress.needed} XP
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-terminal-surface rounded-full h-3 overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-neon-cyan to-neon-green h-3 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.xpProgress.percentage}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                {stats.xpProgress.percentage}% to next level
-              </p>
+        <Card className="p-6 mb-12">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Level Progress</h2>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Level {level}
+              </span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                {xpInCurrentLevel} / {xpNeededForNextLevel} XP
+              </span>
             </div>
-          </Card>
-        )}
+            <div className="w-full bg-gray-200 dark:bg-terminal-surface rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-neon-cyan to-neon-green h-3 rounded-full transition-all duration-500"
+                style={{ width: `${xpPercentage}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              {xpPercentage}% to next level
+            </p>
+          </div>
+        </Card>
 
         {/* In Progress Courses */}
         <div className="mb-12">
@@ -227,22 +288,38 @@ export default function DashboardPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {enrollments.map((enrollment) => {
-                const course = MOCK_COURSES[enrollment.courseId]
-                if (!course) return null
+                const course =
+                  coursesByKey[enrollment.courseId] ||
+                  coursesByKey[String(enrollment.courseId).toLowerCase()] ||
+                  null
+
+                const totalLessons = course
+                  ? course.modules.reduce((acc, module) => acc + module.lessons.length, 0)
+                  : 0
+                const lessonProgress = totalLessons
+                  ? Math.min(Math.round((enrollment.lessonsCompleted / totalLessons) * 100), 100)
+                  : 0
+                const xpTarget = Math.max(course?.xpReward || 0, enrollment.totalXPEarned || 0, 100)
+                const xpProgress = Math.min(Math.round(((enrollment.totalXPEarned || 0) / xpTarget) * 100), 100)
+                const progressPercentage = totalLessons > 0 ? lessonProgress : xpProgress
+                const courseTitle = course?.title || enrollment.courseId
+                const courseDescription = course?.description || 'Course details unavailable'
+                const courseSlug = course?.slug || null
+                const difficulty = course?.difficulty || 'beginner'
 
                 return (
                   <Card key={enrollment.id} className="p-6 hover:shadow-lg transition-shadow">
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
                         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
-                          {course.title}
+                          {courseTitle}
                         </h3>
                         <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-                          {course.description}
+                          {courseDescription}
                         </p>
                       </div>
-                      <span className={`text-xs font-semibold ${difficultyColors[course.difficulty]} ml-2`}>
-                        {course.difficulty.toUpperCase()}
+                      <span className={`text-xs font-semibold ${difficultyColors[difficulty]} ml-2`}>
+                        {difficulty.toUpperCase()}
                       </span>
                     </div>
 
@@ -253,14 +330,16 @@ export default function DashboardPage() {
                           Progress
                         </span>
                         <span className="text-xs text-gray-600 dark:text-gray-400">
-                          {enrollment.totalXPEarned} / {course.xpReward} XP
+                          {totalLessons > 0
+                            ? `${enrollment.lessonsCompleted} / ${totalLessons} lessons`
+                            : `${enrollment.totalXPEarned} XP`}
                         </span>
                       </div>
                       <div className="w-full bg-gray-200 dark:bg-terminal-surface rounded-full h-2 overflow-hidden">
                         <div
                           className="bg-neon-cyan h-2 rounded-full transition-all"
                           style={{
-                            width: `${Math.min((enrollment.totalXPEarned / course.xpReward) * 100, 100)}%`,
+                            width: `${progressPercentage}%`,
                           }}
                         />
                       </div>
@@ -268,17 +347,25 @@ export default function DashboardPage() {
 
                     {/* Course Info */}
                     <div className="grid grid-cols-3 gap-2 mb-4 text-xs text-gray-600 dark:text-gray-400">
-                      <div>⏱️ {course.duration} min</div>
-                      <div>📚 {course.track}</div>
-                      <div>⭐ {course.xpReward} XP</div>
+                      <div>⏱️ {course?.duration || 0} min</div>
+                      <div>📚 {course?.track || 'General'}</div>
+                      <div>⭐ {enrollment.totalXPEarned} XP</div>
                     </div>
 
                     {/* Action Button */}
-                    <Link href={`/courses/${course.slug}`} className="block">
-                      <Button className="w-full" size="sm">
-                        Continue Learning →
-                      </Button>
-                    </Link>
+                    {courseSlug ? (
+                      <Link href={`/courses/${courseSlug}`} className="block">
+                        <Button className="w-full" size="sm">
+                          Continue Learning →
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Link href="/courses" className="block">
+                        <Button className="w-full" size="sm">
+                          View Course Catalog →
+                        </Button>
+                      </Link>
+                    )}
                   </Card>
                 )
               })}

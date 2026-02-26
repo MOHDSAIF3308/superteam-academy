@@ -104,7 +104,11 @@ export class TransactionService {
 
       const wallet = new Wallet(this.backendSigner)
       const provider = new AnchorProvider(this.connection, wallet, { commitment: 'confirmed' })
-      this.program = new Program(IDL, this.programId, provider)
+      const programIdl = {
+        ...IDL,
+        address: this.programId.toBase58(),
+      }
+      this.program = new Program(programIdl as any, this.programId as any, provider)
       console.log('✅ Program initialized:', this.programId.toBase58())
     } catch (error) {
       console.error('❌ Failed to initialize program:', error)

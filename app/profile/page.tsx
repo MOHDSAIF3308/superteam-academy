@@ -1,26 +1,154 @@
 'use client'
 
 import { useI18n } from '@/lib/hooks/useI18n'
-import { useAuth } from '@/lib/hooks/useAuth'
-import { useAchievements } from '@/lib/hooks/useProgress'
-import { Card, CardContent, CardHeader, Button, Input } from '@/components/ui'
-import { useState } from 'react'
+import { useSession } from 'next-auth/react'
+import { useGamification } from '@/lib/hooks/useGamification'
+import { useAchievements } from '@/lib/hooks/useAchievements'
+import { Card, CardContent, CardHeader, Button } from '@/components/ui'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { PublicKey } from '@solana/web3.js'
+import { calculateLevel } from '@/lib/types'
+import { useWallet } from '@/lib/hooks/useWallet'
+import { useXPBalance } from '@/lib/hooks/useXPBalance'
+import { useCredentials } from '@/lib/hooks/useXp'
+import { getAchievementServiceInstance } from '@/lib/services/achievement.service'
+
+interface ProfileUser {
+  id: string
+  email?: string
+  displayName?: string
+  bio?: string
+  avatarUrl?: string
+  age?: number | null
+  walletAddress?: string
+  totalXP: number
+  level: number
+  currentStreak: number
+  longestStreak: number
+  createdAt: string
+}
 
 export default function ProfilePage() {
   const { t } = useI18n()
-  const { user, loading, updateProfile } = useAuth()
-  const { achievements, unlockedAchievements, isLoading: achievementsLoading } = useAchievements()
+  const { data: session, status } = useSession()
+  const { connected, publicKey, openWalletModal } = useWallet()
+  const rawUserId =
+    ((session?.user as any)?.id as string | undefined) || session?.user?.email || null
+  const userId =
+    typeof rawUserId === 'string' && rawUserId.includes('@')
+      ? rawUserId.toLowerCase()
+      : rawUserId
+  const [user, setUser] = useState<ProfileUser | null>(null)
+  const [loading, setLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
-  const [bioBuffer, setBioBuffer] = useState(user?.bio || '')
+  const [bioBuffer, setBioBuffer] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const xpMint = useMemo(() => {
+    const mintStr = process.env.NEXT_PUBLIC_XP_TOKEN_MINT
+    if (!mintStr) return undefined
+    try {
+      return new PublicKey(mintStr)
+    } catch {
+      return undefined
+    }
+  }, [])
+  const { balance: onChainXp } = useXPBalance(publicKey || undefined, xpMint)
+  const { data: credentials = [], isLoading: credentialsLoading } = useCredentials(publicKey || undefined)
+  const { stats, loading: statsLoading } = useGamification(undefined, { userId })
+  const offChainXp = stats?.totalXP ?? user?.totalXP ?? 0
+  const totalXp = connected
+    ? (onChainXp > 0 ? onChainXp : offChainXp)
+    : offChainXp
+  const level = Math.max(stats?.level ?? user?.level ?? 1, calculateLevel(totalXp), 1)
+
+  const completedCourses = 0
+  const { unlockedAchievements } = useAchievements({
+    userId: userId || 'guest',
+    stats: {
+      totalXp,
+      totalLessonsCompleted: stats?.lessonsCompleted || 0,
+      totalCoursesCompleted: completedCourses,
+      currentStreak: stats?.currentStreak || 0,
+      lessonsCompletedToday: stats?.lessonsCompletedToday || 0,
+    },
+  })
+  const achievements = useMemo(() => getAchievementServiceInstance().getAllAchievements(), [])
+  const achievementsLoading = statsLoading
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchProfile = async () => {
+      if (!userId) {
+        setUser(null)
+        setBioBuffer('')
+        setLoading(false)
+        return
+      }
+
+      try {
+        setLoading(true)
+        const response = await fetch(`/api/users/${encodeURIComponent(userId)}/profile`, {
+          cache: 'no-store',
+        })
+        if (!response.ok) {
+          throw new Error(`Failed to fetch profile: ${response.status}`)
+        }
+        const data = await response.json()
+        if (cancelled) return
+        setUser(data)
+        setBioBuffer(data?.bio || '')
+      } catch (error) {
+        console.error('Failed to load profile:', error)
+        if (cancelled) return
+        setUser({
+          id: userId,
+          email: session?.user?.email || undefined,
+          displayName: session?.user?.name || 'Anonymous Learner',
+          bio: '',
+          avatarUrl: session?.user?.image || undefined,
+          age: null,
+          walletAddress: undefined,
+          totalXP: 0,
+          level: 1,
+          currentStreak: 0,
+          longestStreak: 0,
+          createdAt: new Date().toISOString(),
+        })
+        setBioBuffer('')
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void fetchProfile()
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId, session?.user?.email, session?.user?.image, session?.user?.name])
 
   const handleSaveBio = async () => {
-    if (!user) return
+    if (!user || !userId) return
     
     setIsSaving(true)
     try {
-      await updateProfile({ ...user, bio: bioBuffer })
+      const response = await fetch(`/api/users/${encodeURIComponent(userId)}/profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bio: bioBuffer }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to update profile: ${response.status}`)
+      }
+
+      const updated = await response.json()
+      setUser(updated)
+      setBioBuffer(updated?.bio || '')
       setIsEditing(false)
     } catch (err) {
       console.error('Failed to save bio:', err)
@@ -29,7 +157,7 @@ export default function ProfilePage() {
     }
   }
 
-  if (loading) {
+  if (status === 'loading' || loading) {
     return (
       <main className="min-h-screen py-12">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -44,7 +172,7 @@ export default function ProfilePage() {
     )
   }
 
-  if (!user) {
+  if (status !== 'authenticated' || !user) {
     return (
       <main className="min-h-screen py-12">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -58,16 +186,9 @@ export default function ProfilePage() {
     )
   }
 
-  const achievementEmojis: Record<string, string> = {
-    'First Steps': '🚀',
-    'XP Collector': '⭐',
-    'Course Completer': '🎯',
-    'Week Warrior': '🔥',
-    'Monthly Master': '🏆',
-    'Century Seeker': '💯',
-    'Challenge Master': '⚡',
-    'XP Master': '🌟',
-  }
+  const streak = stats?.currentStreak ?? user.currentStreak ?? 0
+  const longestStreak = stats?.longestStreak ?? user.longestStreak ?? 0
+  const memberSince = user.createdAt ? new Date(user.createdAt) : null
 
   return (
     <main className="min-h-screen py-12">
@@ -81,9 +202,12 @@ export default function ProfilePage() {
 
             <div className="flex-1">
               <h1 className="text-3xl font-display font-bold text-gray-900 dark:text-white mb-2">
-                {user.displayName || 'Anonymous Learner'}
+                {user.displayName || session?.user?.name || 'Anonymous Learner'}
               </h1>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">{user.email || 'No email'}</p>
+              <p className="text-gray-600 dark:text-gray-400">{user.email || session?.user?.email || 'No email'}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Age: {typeof user.age === 'number' ? user.age : 'Not set'}
+              </p>
               
               {isEditing ? (
                 <div className="mb-4">
@@ -133,22 +257,22 @@ export default function ProfilePage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Level</p>
-                  <p className="text-2xl font-bold text-blue-600 dark:text-neon-cyan">{user.level}</p>
+                  <p className="text-2xl font-bold text-blue-600 dark:text-neon-cyan">{level}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total XP</p>
                   <p className="text-2xl font-bold text-blue-600 dark:text-neon-cyan">
-                    {(user.totalXP || 0).toLocaleString()}
+                    {totalXp.toLocaleString()}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Streak</p>
-                  <p className="text-2xl font-bold text-orange-500">🔥 {user.currentStreak}</p>
+                  <p className="text-2xl font-bold text-orange-500">🔥 {streak}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Longest</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {user.longestStreak}
+                    {longestStreak}
                   </p>
                 </div>
               </div>
@@ -172,19 +296,18 @@ export default function ProfilePage() {
               {!achievementsLoading ? (
                 <div className="grid grid-cols-4 gap-2">
                   {achievements.map((achievement) => {
-                    const isUnlocked = unlockedAchievements.some((a) => a.achievementId === achievement.id)
-                    const emoji = achievementEmojis[achievement.name] || '🏅'
+                    const isUnlocked = unlockedAchievements.some((a) => a.id === achievement.id)
                     return (
                       <div
                         key={achievement.id}
-                        title={achievement.name}
+                        title={achievement.title}
                         className={`aspect-square rounded-lg flex items-center justify-center text-2xl border-2 transition-all ${
                           isUnlocked
                             ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-400 dark:border-yellow-600 cursor-pointer hover:scale-110'
                             : 'bg-gray-100 dark:bg-terminal-bg border-gray-300 dark:border-terminal-border opacity-50'
                         }`}
                       >
-                        {emoji}
+                        {achievement.icon || '🏅'}
                       </div>
                     )
                   })}
@@ -207,10 +330,53 @@ export default function ProfilePage() {
               </h2>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                <p>📜 Complete courses to earn on-chain credentials (cNFTs)</p>
-                <p className="text-xs">Coming in Phase 2 with Solana integration</p>
-              </div>
+              {!connected && (
+                <div className="space-y-3 text-sm text-gray-600 dark:text-gray-400">
+                  <p>Connect your wallet to load devnet credentials.</p>
+                  <Button variant="secondary" onClick={openWalletModal}>
+                    Connect Wallet
+                  </Button>
+                </div>
+              )}
+
+              {connected && credentialsLoading && (
+                <p className="text-sm text-gray-600 dark:text-gray-400">Loading on-chain credentials...</p>
+              )}
+
+              {connected && !credentialsLoading && credentials.length === 0 && (
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  No credentials found for this wallet on devnet yet.
+                </p>
+              )}
+
+              {connected && !credentialsLoading && credentials.length > 0 && (
+                <div className="space-y-3">
+                  {credentials.map((credential) => (
+                    <div
+                      key={credential.assetId}
+                      className="rounded-lg border border-terminal-border p-3 bg-gray-100 dark:bg-terminal-bg"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-gray-900 dark:text-white">{credential.name}</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            Track {credential.trackId} · Level {credential.level}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            {credential.coursesCompleted} courses · {credential.totalXp} XP
+                          </p>
+                        </div>
+                        <Link
+                          href={`/certificates/${credential.assetId}`}
+                          className="text-sm text-blue-600 dark:text-neon-cyan hover:underline"
+                        >
+                          View
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -224,10 +390,12 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             <div className="text-gray-700 dark:text-gray-300">
-              <p>{new Date(user.createdAt).toLocaleDateString()}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                Joined {Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24))} days ago
-              </p>
+              <p>{memberSince ? memberSince.toLocaleDateString() : 'Unknown'}</p>
+              {memberSince && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                  Joined {Math.floor((Date.now() - memberSince.getTime()) / (1000 * 60 * 60 * 24))} days ago
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

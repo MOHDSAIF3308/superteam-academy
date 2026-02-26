@@ -55,12 +55,31 @@ class ApiClient {
         body: body ? JSON.stringify(body) : undefined,
       })
 
+      const contentType = response.headers.get('content-type') || ''
+      const isJson = contentType.includes('application/json')
+      const parsedBody = isJson
+        ? await response.json().catch(() => null)
+        : await response.text().catch(() => '')
+
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Request failed')
+        const message =
+          (typeof parsedBody === 'object' && parsedBody && 'error' in parsedBody
+            ? String((parsedBody as Record<string, unknown>).error)
+            : typeof parsedBody === 'string' && parsedBody
+              ? parsedBody.slice(0, 160)
+              : '') || `Request failed (${response.status})`
+        throw new Error(message)
       }
 
-      return response.json()
+      if (response.status === 204) {
+        return {} as T
+      }
+
+      if (isJson) {
+        return (parsedBody as T) || ({} as T)
+      }
+
+      return {} as T
     } catch (error) {
       console.error(`API Error [${method} ${endpoint}]:`, error)
       throw error

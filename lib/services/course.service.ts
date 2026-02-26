@@ -1,6 +1,15 @@
 import { Connection } from '@solana/web3.js'
 import { Course, Enrollment, LearningPath } from '../types'
 import { OnchainCourseService } from './onchain-course.service'
+import {
+  getCourses as getSanityCourses,
+  getCourse as getSanityCourse,
+  getLesson as getSanityLesson,
+  searchCourses as searchSanityCourses,
+  isSanityConfigured,
+  SanityCourse,
+  SanityLesson,
+} from '@/lib/sanity'
 
 export interface CourseService {
   getCourses(filters?: {
@@ -25,6 +34,7 @@ export interface CourseService {
 const MOCK_COURSES: Course[] = [
   {
     id: 'course-1',
+    onchainCourseId: 'solana-fundamentals',
     slug: 'solana-fundamentals',
     title: 'Solana Fundamentals',
     description:
@@ -436,6 +446,7 @@ pub fn process_instruction(
   },
   {
     id: 'course-2',
+    onchainCourseId: 'anchor-development',
     slug: 'anchor-development',
     title: 'Anchor Development',
     description: 'Master Anchor framework for building Solana programs efficiently.',
@@ -469,6 +480,72 @@ pub fn process_instruction(
     createdAt: new Date(),
     updatedAt: new Date(),
   },
+  {
+    id: 'course-3',
+    onchainCourseId: 'onchain-xp-bootcamp',
+    slug: 'onchain-xp-bootcamp',
+    title: 'On-Chain XP Bootcamp',
+    description: 'Learn the complete on-chain XP flow: PDAs, completion, and credential issuance.',
+    difficulty: 'intermediate',
+    duration: 210,
+    track: 'On-Chain',
+    xpReward: 800,
+    enrollmentCount: 420,
+    tags: ['onchain', 'xp', 'pda', 'credentials'],
+    instructor: {
+      name: 'Superteam Academy',
+    },
+    modules: [
+      {
+        id: 'module-5',
+        courseId: 'course-3',
+        title: 'On-Chain XP Foundations',
+        description: 'Understand how XP is tracked and minted on Solana',
+        order: 1,
+        lessons: [
+          {
+            id: 'lesson-8',
+            title: 'XP Accounts and PDAs',
+            description: 'How config, course, and enrollment PDAs work together',
+            type: 'content',
+            content:
+              '# XP Accounts and PDAs\n\nThis lesson explains config/course/enrollment PDA derivation and state layout.',
+            order: 1,
+            xpReward: 100,
+          },
+          {
+            id: 'lesson-9',
+            title: 'Complete Lesson Transaction',
+            description: 'Build and submit the on-chain lesson completion flow',
+            type: 'challenge',
+            content:
+              '# Complete Lesson Flow\n\nBuild the transaction pipeline that signs and submits `complete_lesson`.',
+            order: 2,
+            xpReward: 150,
+            challenge: {
+              prompt: 'Wire a complete_lesson transaction from frontend to backend signer service',
+              starterCode:
+                'const tx = await fetchSignedTx();\nconst signature = await sendTransaction(tx, connection);',
+              testCases: [
+                {
+                  input: '{}',
+                  expectedOutput: 'transaction submitted',
+                  description: 'Should build and submit a signed transaction',
+                },
+              ],
+              hints: [
+                'Derive the right PDAs for course and enrollment',
+                'Use backend endpoint to build signed transactions',
+                'Confirm transaction after wallet signature',
+              ],
+            },
+          },
+        ],
+      },
+    ],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
 ]
 
 const LEARNING_PATHS: LearningPath[] = [
@@ -484,7 +561,7 @@ const LEARNING_PATHS: LearningPath[] = [
     id: 'path-2',
     title: 'Smart Contract Developer',
     description: 'Build production-ready programs on Solana',
-    courses: ['course-1', 'course-2'],
+    courses: ['course-1', 'course-2', 'course-3'],
     icon: '⚙️',
     order: 2,
   },
@@ -494,6 +571,7 @@ export class LocalCourseService implements CourseService {
   private enrollments = new Map<string, Enrollment[]>()
   private baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
   private onchainService: OnchainCourseService | null = null
+  private sanityEnabled = isSanityConfigured()
 
   // Map on-chain difficulty number to string
   private difficultyToString(difficulty: number): 'beginner' | 'intermediate' | 'advanced' {
@@ -521,8 +599,84 @@ export class LocalCourseService implements CourseService {
 
   // Map on-chain courseId to mock course slug
   private findMockCourseByOnChainId(onChainId: string): Course | undefined {
-    // Try to match by ID or find a course that represents this on-chain course
-    return MOCK_COURSES.find((c) => c.id === onChainId || c.id.includes(onChainId.slice(0, 8)))
+    const normalized = String(onChainId || '').toLowerCase()
+    if (!normalized) return undefined
+
+    return MOCK_COURSES.find((c) => {
+      const id = c.id.toLowerCase()
+      const slug = c.slug.toLowerCase()
+      const onchainCourseId = (c.onchainCourseId || '').toLowerCase()
+
+      return (
+        normalized === id ||
+        normalized === slug ||
+        (!!onchainCourseId && normalized === onchainCourseId) ||
+        id.includes(normalized.slice(0, 8)) ||
+        slug.includes(normalized.slice(0, 8)) ||
+        (normalized.length > 8 && normalized.includes(id.slice(0, 8)))
+      )
+    })
+  }
+
+  private mapSanityLesson(rawLesson: any): any {
+    const testCases = Array.isArray(rawLesson?.challenge?.testCases)
+      ? rawLesson.challenge.testCases.map((tc: any, idx: number) => ({
+          input: tc?.input || '',
+          expectedOutput: tc?.expectedOutput || '',
+          description: tc?.description || `Test case ${idx + 1}`,
+        }))
+      : []
+
+    return {
+      id: rawLesson._id,
+      title: rawLesson.title,
+      description: rawLesson.description || '',
+      type: rawLesson.type === 'challenge' ? 'challenge' : 'content',
+      content: rawLesson.contentText || rawLesson.description || '',
+      order: rawLesson.order || 0,
+      xpReward: rawLesson.xpReward || 0,
+      challenge:
+        rawLesson.type === 'challenge'
+          ? {
+              prompt: rawLesson.challenge?.prompt || '',
+              starterCode: rawLesson.challenge?.starterCode || '',
+              testCases,
+              hints: rawLesson.challenge?.hints || [],
+            }
+          : undefined,
+    }
+  }
+
+  private mapSanityCourse(rawCourse: SanityCourse): Course {
+    const mappedModules =
+      rawCourse.modules?.map((module: any) => ({
+        id: module._id,
+        courseId: rawCourse._id,
+        title: module.title,
+        description: module.description || '',
+        order: module.order || 0,
+        lessons: (module.lessons || []).map((lesson: any) => this.mapSanityLesson(lesson)),
+      })) || []
+
+    return {
+      id: rawCourse._id,
+      slug: rawCourse.slug.current,
+      onchainCourseId: rawCourse.slug.current,
+      title: rawCourse.title,
+      description: rawCourse.description,
+      difficulty: rawCourse.difficulty,
+      duration: rawCourse.duration || 0,
+      track: rawCourse.track || 'Core',
+      xpReward: rawCourse.xpReward || 0,
+      enrollmentCount: rawCourse.enrollmentCount || 0,
+      tags: rawCourse.tags || [],
+      instructor: {
+        name: rawCourse.instructor?.name || 'Superteam Academy',
+      },
+      modules: mappedModules.sort((a, b) => a.order - b.order),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
   }
 
   async getCourses(filters?: {
@@ -532,6 +686,34 @@ export class LocalCourseService implements CourseService {
   }): Promise<Course[]> {
     let courses: Course[] = []
 
+    // CMS first: this is the primary runtime source for LMS content
+    if (this.sanityEnabled) {
+      try {
+        const sanityCourses = filters?.search
+          ? await searchSanityCourses(filters.search)
+          : await getSanityCourses({
+              difficulty: filters?.difficulty,
+              track: filters?.track,
+            })
+
+        courses = sanityCourses.map((course) => this.mapSanityCourse(course))
+
+        // Apply optional filters after search query
+        if (filters?.difficulty) {
+          courses = courses.filter((c) => c.difficulty === filters.difficulty)
+        }
+        if (filters?.track) {
+          courses = courses.filter((c) => c.track === filters.track)
+        }
+
+        if (courses.length > 0) {
+          return courses
+        }
+      } catch (error) {
+        console.warn('Failed to fetch CMS courses, falling back to local data:', error)
+      }
+    }
+
     // Try to fetch from on-chain, fall back to mock data
     if (this.onchainService) {
       try {
@@ -539,7 +721,8 @@ export class LocalCourseService implements CourseService {
         // Map on-chain courses to full Course objects using mock data as content source
         courses = onChainCourses
           .map((oc: any) => {
-            const mockCourse = this.findMockCourseByOnChainId(oc.id)
+            const onChainCourseId = oc.courseId || oc.id
+            const mockCourse = this.findMockCourseByOnChainId(onChainCourseId)
             // If we have mock course, enrich it with on-chain data
             if (mockCourse) {
               return {
@@ -551,6 +734,10 @@ export class LocalCourseService implements CourseService {
             return undefined
           })
           .filter((c): c is Course => c !== undefined)
+
+        if (courses.length === 0) {
+          courses = [...MOCK_COURSES]
+        }
       } catch (error) {
         console.warn('Failed to fetch on-chain courses, using mock data:', error)
         courses = [...MOCK_COURSES]
@@ -581,6 +768,17 @@ export class LocalCourseService implements CourseService {
   }
 
   async getCourse(slug: string): Promise<Course | null> {
+    if (this.sanityEnabled) {
+      try {
+        const cmsCourse = await getSanityCourse(slug)
+        if (cmsCourse) {
+          return this.mapSanityCourse(cmsCourse)
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch CMS course for ${slug}, using fallback:`, error)
+      }
+    }
+
     // First try to find in mock courses by slug
     let course = MOCK_COURSES.find((c) => c.slug === slug) || null
 
@@ -667,6 +865,17 @@ export class LocalCourseService implements CourseService {
   }
 
   async getLesson(courseId: string, lessonId: string): Promise<any> {
+    if (this.sanityEnabled) {
+      try {
+        const lesson = await getSanityLesson(courseId, lessonId)
+        if (lesson) {
+          return this.mapSanityLesson(lesson as SanityLesson)
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch CMS lesson ${lessonId}, using API fallback:`, error)
+      }
+    }
+
     try {
       const response = await fetch(
         `${this.baseUrl}/courses/${courseId}/lessons/${lessonId}`

@@ -17,6 +17,14 @@ interface AuthRequest extends Request {
 
 let signerService: BackendSignerService;
 
+function getXpMintAddress(): PublicKey {
+  const xpMint = process.env.XP_TOKEN_MINT || process.env.XP_MINT_ADDRESS
+  if (!xpMint) {
+    throw new Error('XP_TOKEN_MINT is not configured')
+  }
+  return new PublicKey(xpMint)
+}
+
 /**
  * Initialize signer service (called once on backend startup)
  */
@@ -44,7 +52,7 @@ export async function completeLesson(req: AuthRequest, res: Response) {
     }
 
     const learnerAddress = new PublicKey(req.userAddress);
-    const xpMintAddress = new PublicKey(process.env.XP_MINT_ADDRESS || '');
+    const xpMintAddress = getXpMintAddress()
 
     // Backend signer completes the lesson
     const txId = await signerService.completeLesson(
@@ -86,7 +94,7 @@ export async function finalizeCourse(req: AuthRequest, res: Response) {
     }
 
     const learnerAddress = new PublicKey(req.userAddress);
-    const xpMintAddress = new PublicKey(process.env.XP_MINT_ADDRESS || '');
+    const xpMintAddress = getXpMintAddress()
 
     // Backend signer finalizes the course
     const txId = await signerService.finalizeCourse(courseId, learnerAddress, xpMintAddress);

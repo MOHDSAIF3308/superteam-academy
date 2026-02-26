@@ -1,8 +1,7 @@
-import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
+import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID, IDL } from '@/lib/anchor';
+import { getProgram } from '@/lib/anchor';
 import {
-  getConfigPda,
   getCoursePda,
   getEnrollmentPda,
   Course as OnChainCourse,
@@ -33,7 +32,7 @@ export class OnchainCourseService {
 
   constructor(connection: Connection) {
     const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
-    this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
+    this.program = getProgram(provider);
   }
 
   /**

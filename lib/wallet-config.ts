@@ -26,7 +26,7 @@ export const SUPPORTED_WALLETS = [
  * Pass to WalletProvider autoConnect prop
  */
 export const WALLET_CONFIG = {
-  autoConnect: false, // Don't auto-connect on first load
+  autoConnect: true, // Reconnect to the last selected wallet after refresh
   onError: (error: Error) => {
     console.error('Wallet error:', error)
   },

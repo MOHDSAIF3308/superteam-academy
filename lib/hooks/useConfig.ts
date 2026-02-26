@@ -1,8 +1,7 @@
 import { useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
 import { useQuery } from '@tanstack/react-query';
-import { BN, AnchorProvider, Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID, IDL, getConfigPda } from '@/lib/anchor';
+import { AnchorProvider } from '@coral-xyz/anchor';
+import { getConfigPda, getProgram } from '@/lib/anchor';
 
 /**
  * Hook: Get on-chain config
@@ -14,7 +13,7 @@ export function useConfig() {
     queryKey: ['config:onchain'],
     queryFn: async () => {
       const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
-      const program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any);
+      const program = getProgram(provider);
 
       const [configPda] = getConfigPda();
       return await (program.account as any).config.fetch(configPda);

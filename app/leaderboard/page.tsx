@@ -1,17 +1,35 @@
 'use client'
 
 import { useI18n } from '@/lib/hooks/useI18n'
-import { useAuth } from '@/lib/hooks/useAuth'
-import { useLeaderboard, useUserRank } from '@/lib/hooks/useProgress'
+import { useLeaderboard } from '@/lib/hooks/useProgress'
 import { Card, CardContent, CardHeader } from '@/components/ui'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useWallet } from '@/lib/hooks/useWallet'
+import { PublicKey } from '@solana/web3.js'
+import { useXPBalance } from '@/lib/hooks/useXPBalance'
+import { calculateLevel } from '@/lib/types'
 
 export default function LeaderboardPage() {
   const { t } = useI18n()
-  const { user } = useAuth()
+  const { connected, publicKey, walletAddress } = useWallet()
   const { leaderboard, loading } = useLeaderboard()
-  const { rank: userRank, loading: rankLoading } = useUserRank(user?.id || '')
   const [timeframe] = useState<'weekly' | 'monthly' | 'alltime'>('alltime')
+  const xpMint = useMemo(() => {
+    const mintStr = process.env.NEXT_PUBLIC_XP_TOKEN_MINT
+    if (!mintStr) return undefined
+    try {
+      return new PublicKey(mintStr)
+    } catch {
+      return undefined
+    }
+  }, [])
+  const { balance: walletXp } = useXPBalance(publicKey || undefined, xpMint)
+  const walletLevel = calculateLevel(walletXp)
+  const currentUserEntry = leaderboard.find((entry) => {
+    if (!walletAddress) return false
+    const candidate = (entry.wallet || entry.userId || '').toLowerCase()
+    return candidate === walletAddress.toLowerCase()
+  })
 
   return (
     <main className="min-h-screen py-12 bg-gray-50 dark:bg-inherit">
@@ -45,17 +63,19 @@ export default function LeaderboardPage() {
         </div>
 
         {/* User's Current Rank */}
-        {user && !rankLoading && userRank && (
+        {connected && (
           <Card className="mb-8 border-2 border-blue-600 dark:border-neon-cyan">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Your Rank</p>
-                  <p className="text-3xl font-bold text-blue-600 dark:text-neon-cyan"># {userRank.rank}</p>
+                  <p className="text-3xl font-bold text-blue-600 dark:text-neon-cyan">
+                    {currentUserEntry ? `# ${currentUserEntry.rank}` : 'Not in top list'}
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{user.totalXP.toLocaleString()} XP</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Level {user.level}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{walletXp.toLocaleString()} XP</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Level {walletLevel}</p>
                 </div>
               </div>
             </CardContent>
@@ -87,7 +107,8 @@ export default function LeaderboardPage() {
                   </thead>
                   <tbody>
                     {leaderboard.map((entry, idx) => {
-                      const isCurrentUser = user && entry.userId === user.id
+                      const wallet = (entry.wallet || entry.userId || '').toLowerCase()
+                      const isCurrentUser = !!walletAddress && wallet === walletAddress.toLowerCase()
                       return (
                         <tr
                           key={entry.userId}

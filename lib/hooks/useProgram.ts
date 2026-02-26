@@ -1,9 +1,8 @@
 import { useConnection } from '@solana/wallet-adapter-react'
-import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor'
-import { PublicKey } from '@solana/web3.js'
+import { AnchorProvider, Wallet } from '@coral-xyz/anchor'
 import { useMemo } from 'react'
 import { useWallet } from './useWallet'
-import IDL from '@/lib/anchor/academy.json'
+import { getProgram } from '@/lib/anchor'
 
 /**
  * Hook for interacting with Anchor program
@@ -39,13 +38,7 @@ export const useProgram = () => {
         commitment: 'confirmed',
       })
 
-      const programId = process.env.NEXT_PUBLIC_ANCHOR_PROGRAM_ID as any
-      if (!programId) {
-        console.warn('NEXT_PUBLIC_ANCHOR_PROGRAM_ID not set')
-        return null
-      }
-
-      return new Program(IDL as any, programId, provider as any) as any
+      return getProgram(provider) as any
     } catch (error) {
       console.error('Failed to initialize program:', error)
       return null

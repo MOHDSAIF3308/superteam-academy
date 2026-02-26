@@ -10,9 +10,8 @@ import { OnchainCourseService, CourseProgress } from './onchain-course.service'
 import { XpService } from './xp.service'
 import { CredentialService } from './credential.service'
 import type { Credential as CredentialType } from '../types'
-import { getConfigPda } from '@/lib/anchor'
+import { getConfigPda, getProgram } from '@/lib/anchor'
 import { Program, AnchorProvider } from '@coral-xyz/anchor'
-import { IDL, PROGRAM_ID } from '@/lib/anchor'
 
 /**
  * Learning Progress Service
@@ -98,7 +97,7 @@ export class LocalLearningProgressService implements LearningProgressService {
         this.credentialService = new CredentialService(heliusRpc)
         // Initialize program for config fetching
         const provider = new AnchorProvider(this.connection, {} as any, { commitment: 'confirmed' })
-        this.program = new Program<any>(IDL as any, PROGRAM_ID as any, provider as any)
+        this.program = getProgram(provider)
       } catch (error) {
         console.warn('Could not initialize on-chain services:', error)
       }

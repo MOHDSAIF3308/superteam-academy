@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiClient } from '@/lib/api/api-client'
+import { calculateLevel } from '@/lib/types'
 
 export interface Progress {
   userId: string
@@ -106,11 +107,38 @@ export function useLeaderboard(limit = 50, offset = 0) {
     const fetchLeaderboard = async () => {
       try {
         setError(null)
-        const data = await apiClient.getLeaderboard(limit, offset)
-        setLeaderboard(data)
+        const response = await fetch(`/api/leaderboard?limit=${limit}&offset=${offset}`, {
+          cache: 'no-store',
+        })
+        if (!response.ok) {
+          throw new Error(`Leaderboard request failed: ${response.status}`)
+        }
+
+        const data = await response.json()
+        if (!Array.isArray(data)) {
+          setLeaderboard([])
+          return
+        }
+
+        setLeaderboard(
+          data.map((entry: any, idx: number) => {
+            const totalXP = Number(entry.totalXP ?? entry.totalXp ?? entry.xp ?? 0)
+            return {
+              rank: entry.rank ?? offset + idx + 1,
+              userId: entry.userId ?? entry.wallet ?? `user-${idx}`,
+              wallet: entry.wallet ?? entry.userId ?? '',
+              username: entry.username ?? 'Unknown',
+              displayName: entry.displayName ?? entry.username ?? 'Unknown',
+              totalXP,
+              level: entry.level ?? calculateLevel(totalXP),
+              currentStreak: Number(entry.currentStreak ?? 0),
+            }
+          })
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to fetch leaderboard'
         setError(message)
+        setLeaderboard([])
       } finally {
         setLoading(false)
       }

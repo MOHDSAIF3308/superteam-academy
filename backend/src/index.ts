@@ -1,13 +1,10 @@
+import './env'
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
-import path from 'path'
 import { initializeDatabase, closeDatabase } from './db'
 import authRoutes from './routes/auth.routes'
 import apiRoutes from './routes/api.routes'
 import onchainRoutes, { initializeSignerService } from './routes/onchain.routes'
-
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
 
 const app = express()
 const PORT = process.env.PORT || 3001

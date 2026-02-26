@@ -1,33 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+async function getSupabaseClient() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return null
+  }
+
+  const { createClient } = await import('@supabase/supabase-js')
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
+
+async function resolveCanonicalUserId(supabase: any, rawUserId: string): Promise<string | null> {
+  const candidates = Array.from(new Set([rawUserId, rawUserId.toLowerCase()]))
+
+  for (const candidate of candidates) {
+    const { data: user } = await supabase
+      .from('users')
+      .select('id')
+      .or(`id.eq.${candidate},email.eq.${candidate},wallet_address.eq.${candidate}`)
+      .maybeSingle()
+
+    if (user?.id) {
+      return user.id
+    }
+  }
+
+  return null
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { userId: string } }
 ) {
   try {
-    const userId = params.userId
+    const userId = decodeURIComponent(params.userId || '')
 
     if (!userId) {
       return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
     }
 
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { error: 'Supabase not configured' },
-        { status: 500 }
-      )
+    const supabase = await getSupabaseClient()
+    if (!supabase) {
+      return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 })
     }
 
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+    const canonicalUserId = await resolveCanonicalUserId(supabase, userId)
+    const candidateUserIds = Array.from(
+      new Set([canonicalUserId, userId, userId.toLowerCase()].filter(Boolean))
+    ) as string[]
 
     const { data: enrollments, error } = await supabase
       .from('enrollments')
       .select('id, course_id, total_xp_earned, lessons_completed, enrolled_at, completed_at')
-      .eq('user_id', userId)
+      .in('user_id', candidateUserIds)
 
     if (error) throw error
 

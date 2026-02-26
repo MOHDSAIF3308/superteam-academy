@@ -42,7 +42,12 @@ export const useCompleteLesson = () => {
       try {
         // Step 1: Request signed transaction from backend
         console.log('📤 Building transaction from backend...')
-        const txResponse = await fetch('/api/transaction/complete-lesson', {
+        const apiBase =
+          process.env.NEXT_PUBLIC_TX_API_URL ||
+          process.env.NEXT_PUBLIC_BACKEND_API_URL ||
+          'http://localhost:3001/api'
+        const txEndpoint = `${apiBase.replace(/\/$/, '')}/transaction/complete-lesson`
+        const txResponse = await fetch(txEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

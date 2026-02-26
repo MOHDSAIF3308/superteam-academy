@@ -5,7 +5,29 @@ export async function submitLesson(
   xpReward: number
 ) {
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/xp/award`, {
+    const enrollmentResponse = await fetch('/api/enrollments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        courseId,
+      }),
+    })
+
+    if (!enrollmentResponse.ok && enrollmentResponse.status !== 200) {
+      const enrollmentError = await enrollmentResponse.json().catch(() => null)
+      return {
+        success: false,
+        xpAwarded: 0,
+        totalXp: 0,
+        level: 0,
+        message: enrollmentError?.error || 'Failed to create enrollment',
+      }
+    }
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+    const xpAwardUrl = apiBase ? `${apiBase.replace(/\/$/, '')}/xp/award` : '/api/xp/award'
+    const response = await fetch(xpAwardUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

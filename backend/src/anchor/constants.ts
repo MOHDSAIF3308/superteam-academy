@@ -1,7 +1,9 @@
 import { PublicKey } from '@solana/web3.js';
 
 // Program ID (string version)
-export const PROGRAM_ID_STRING = 'ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf';
+const DEFAULT_PROGRAM_ID = 'ACADBRCB3zGvo1KSCbkztS33ZNzeBv2d7bqGceti3ucf';
+const programIdFromEnv = process.env.ANCHOR_PROGRAM_ID;
+export const PROGRAM_ID_STRING = programIdFromEnv || DEFAULT_PROGRAM_ID;
 
 // Program ID (PublicKey version)
 export const PROGRAM_ID = new PublicKey(PROGRAM_ID_STRING);

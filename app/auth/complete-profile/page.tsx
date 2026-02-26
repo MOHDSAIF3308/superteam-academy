@@ -45,7 +45,7 @@ export default function CompleteProfile() {
 
   const checkUserExists = async (email: string) => {
     try {
-      const encodedEmail = encodeURIComponent(email)
+      const encodedEmail = encodeURIComponent(email.toLowerCase())
       const response = await fetch(`${apiBaseUrl}/users/${encodedEmail}/profile`)
       if (response.ok) {
         setUserExists(true)

@@ -9,6 +9,7 @@ import { Card, Button } from '@/components/ui'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import ReactMarkdown from 'react-markdown'
+import { useWallet } from '@/lib/hooks/useWallet'
 
 interface Lesson {
   id: string
@@ -48,6 +49,7 @@ export default function LessonPage() {
   const params = useParams()
   const router = useRouter()
   const { data: session } = useSession()
+  const { walletAddress } = useWallet()
   const [course, setCourse] = useState<CourseData | null>(null)
   const [lesson, setLesson] = useState<Lesson | null>(null)
   const [loading, setLoading] = useState(true)
@@ -115,12 +117,12 @@ export default function LessonPage() {
   const nextLesson = lessonIndex < currentModule.lessons.length - 1 ? currentModule.lessons[lessonIndex + 1] : null
 
   const handleSubmit = async () => {
-    if (!session?.user) {
-      alert('Please sign in to submit')
+    if (!session?.user && !walletAddress) {
+      alert('Please sign in or connect a wallet to continue')
       return
     }
 
-    const userId = (session.user as any).id || session.user.email
+    const userId = (session?.user as any)?.id || session?.user?.email || walletAddress
     if (!userId) {
       alert('Unable to get user ID')
       return
@@ -131,7 +133,9 @@ export default function LessonPage() {
     setSubmitting(false)
     
     if (result.success) {
-      alert(`✅ Challenge submitted!\n\nYou earned ${result.xpAwarded} XP!\nTotal XP: ${result.totalXp}\nLevel: ${result.level}`)
+      alert(
+        `✅ Lesson completed!\n\nYou earned ${result.xpAwarded} XP!\nTotal XP: ${result.totalXp}\nLevel: ${result.level}`
+      )
       
       // Refresh gamification stats
       setRefreshTrigger(prev => prev + 1)
@@ -276,6 +280,18 @@ export default function LessonPage() {
             {/* Submit Button */}
             <Button onClick={handleSubmit} disabled={submitting} className="w-full">
               {submitting ? 'Submitting...' : `Submit Challenge & Earn ${lesson.xpReward} XP`}
+            </Button>
+          </Card>
+        )}
+
+        {lesson.type === 'content' && (
+          <Card className="p-6 mb-12">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-3">Mark Lesson Complete</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Claim your XP once you finish this lesson.
+            </p>
+            <Button onClick={handleSubmit} disabled={submitting} className="w-full">
+              {submitting ? 'Saving...' : `Mark Complete & Earn ${lesson.xpReward} XP`}
             </Button>
           </Card>
         )}

@@ -16,38 +16,71 @@ export interface GamificationStats {
   }
 }
 
-export function useGamification(refreshTrigger?: number) {
+export function useGamification(
+  refreshTrigger?: number,
+  options?: { userId?: string | null }
+) {
   const { data: session } = useSession()
   const [stats, setStats] = useState<GamificationStats | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchStats = useCallback(async (userId: string) => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/gamification/${userId}`
-      )
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const normalizedBase = apiBase.replace(/\/$/, '')
+      const response = await fetch(`${normalizedBase}/gamification/${encodeURIComponent(userId)}`)
       if (response.ok) {
         const data = await response.json()
         setStats(data)
       } else {
-        console.error('Failed to fetch stats:', response.statusText)
+        setStats({
+          totalXP: 0,
+          level: 1,
+          currentStreak: 0,
+          longestStreak: 0,
+          achievementsUnlocked: 0,
+          lessonsCompleted: 0,
+          lessonsCompletedToday: 0,
+          xpProgress: {
+            current: 0,
+            needed: 100,
+            percentage: 0,
+          },
+        })
       }
     } catch (error) {
       console.error('Failed to fetch gamification stats:', error)
+      setStats({
+        totalXP: 0,
+        level: 1,
+        currentStreak: 0,
+        longestStreak: 0,
+        achievementsUnlocked: 0,
+        lessonsCompleted: 0,
+        lessonsCompletedToday: 0,
+        xpProgress: {
+          current: 0,
+          needed: 100,
+          percentage: 0,
+        },
+      })
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    const userId = (session?.user as any)?.id || session?.user?.email
+    const userId =
+      options?.userId ||
+      (session?.user as any)?.id ||
+      session?.user?.email
     if (!userId) {
       setLoading(false)
       return
     }
 
     fetchStats(userId)
-  }, [(session?.user as any)?.id, session?.user?.email, fetchStats, refreshTrigger])
+  }, [(session?.user as any)?.id, session?.user?.email, fetchStats, refreshTrigger, options?.userId])
 
   return { stats, loading, refetch: fetchStats }
 }

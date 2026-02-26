@@ -2,7 +2,7 @@ import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { useQuery } from '@tanstack/react-query';
 import { XpService } from '@/lib/services/xp.service';
-import { CredentialService } from '@/lib/services/credential.service';
+import { createCredentialService } from '@/lib/services/credential.service';
 
 /**
  * Hook: Get XP balance for wallet
@@ -44,13 +44,11 @@ export function useCredentials(
   trackCollectionAddress?: PublicKey,
   heliusRpcUrl?: string
 ) {
-  const { connection } = useConnection();
-
   return useQuery({
     queryKey: ['credentials', walletAddress?.toString(), trackCollectionAddress?.toString()],
     queryFn: async () => {
       if (!walletAddress) return [];
-      const service = new CredentialService(heliusRpcUrl || process.env.NEXT_PUBLIC_HELIUS_RPC_URL || '');
+      const service = createCredentialService(heliusRpcUrl);
       return await service.getCredentials(walletAddress, trackCollectionAddress);
     },
     enabled: !!walletAddress,
@@ -67,13 +65,11 @@ export function useCredentialByTrack(
   trackCollectionAddress?: PublicKey,
   heliusRpcUrl?: string
 ) {
-  const { connection } = useConnection();
-
   return useQuery({
     queryKey: ['credential:track', walletAddress?.toString(), trackId, trackCollectionAddress?.toString()],
     queryFn: async () => {
       if (!walletAddress || !trackId || !trackCollectionAddress) return null;
-      const service = new CredentialService(heliusRpcUrl || process.env.NEXT_PUBLIC_HELIUS_RPC_URL || '');
+      const service = createCredentialService(heliusRpcUrl);
       return await service.getCredentialByTrack(walletAddress, trackId, trackCollectionAddress);
     },
     enabled: !!walletAddress && !!trackId && !!trackCollectionAddress,

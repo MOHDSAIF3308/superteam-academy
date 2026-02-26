@@ -7,7 +7,9 @@ import { PublicKey } from '@solana/web3.js';
 
 interface DasAsset {
   id: string;
+  created_at?: number;
   content?: {
+    json_uri?: string;
     metadata?: {
       name: string;
       symbol: string;
@@ -21,13 +23,6 @@ interface DasAsset {
     group_key: string;
     group_value: string;
   }>;
-}
-
-interface CredentialAttributes {
-  trackId?: string;
-  level?: string;
-  coursesCompleted?: string;
-  totalXp?: string;
 }
 
 export interface Credential {
@@ -86,6 +81,8 @@ export class CredentialService {
         );
       }
 
+      credentials = credentials.filter((asset) => this.isCredentialAsset(asset));
+
       // Transform to Credential format
       return credentials.map((asset) => this.parseCredential(asset));
     } catch (error) {
@@ -129,17 +126,52 @@ export class CredentialService {
    */
   private parseCredential(asset: DasAsset): Credential {
     const attrs = asset.content?.metadata?.attributes || [];
-    const attrMap = new Map(attrs.map((a) => [a.trait_type, a.value]));
+    const attrMap = new Map(
+      attrs.map((a) => [a.trait_type.toLowerCase(), String(a.value)])
+    );
+    const mintedAt = asset.created_at
+      ? new Date(asset.created_at * 1000).toISOString()
+      : new Date().toISOString();
 
     return {
       assetId: asset.id,
       name: asset.content?.metadata?.name || 'Unnamed Credential',
-      trackId: attrMap.get('track_id') || 'unknown',
-      level: parseInt(attrMap.get('level') || '0'),
-      coursesCompleted: parseInt(attrMap.get('courses_completed') || '0'),
-      totalXp: parseInt(attrMap.get('total_xp') || '0'),
-      mintedAt: new Date().toISOString(), // Not available in DAS response
+      trackId: this.readAttribute(attrMap, ['track_id', 'track', 'trackid']) || 'unknown',
+      level: parseInt(this.readAttribute(attrMap, ['level']) || '0'),
+      coursesCompleted: parseInt(
+        this.readAttribute(attrMap, ['courses_completed', 'coursescompleted']) || '0'
+      ),
+      totalXp: parseInt(this.readAttribute(attrMap, ['total_xp', 'xp', 'totalxp']) || '0'),
+      mintedAt,
     };
+  }
+
+  private readAttribute(map: Map<string, string>, keys: string[]): string | undefined {
+    for (const key of keys) {
+      const value = map.get(key.toLowerCase());
+      if (value) return value;
+    }
+    return undefined;
+  }
+
+  private isCredentialAsset(asset: DasAsset): boolean {
+    const attributes = asset.content?.metadata?.attributes || [];
+    const keys = new Set(attributes.map((a) => a.trait_type.toLowerCase()));
+    const name = asset.content?.metadata?.name?.toLowerCase() || '';
+    const symbol = asset.content?.metadata?.symbol?.toLowerCase() || '';
+
+    const hasCredentialAttributes =
+      keys.has('track_id') ||
+      keys.has('track') ||
+      keys.has('level') ||
+      keys.has('courses_completed') ||
+      keys.has('total_xp');
+
+    if (hasCredentialAttributes) {
+      return true;
+    }
+
+    return symbol.includes('cred') || name.includes('credential') || name.includes('certificate');
   }
 
   /**
@@ -158,6 +190,12 @@ export class CredentialService {
  * Factory function to create CredentialService
  */
 export function createCredentialService(heliusRpcUrl?: string): CredentialService {
-  const rpc = heliusRpcUrl || process.env.HELIUS_RPC_URL || 'https://devnet.helius-rpc.com';
+  const rpc =
+    heliusRpcUrl ||
+    process.env.NEXT_PUBLIC_HELIUS_RPC_URL ||
+    process.env.HELIUS_RPC_URL ||
+    (process.env.NEXT_PUBLIC_HELIUS_API_KEY
+      ? `https://devnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_HELIUS_API_KEY}`
+      : '');
   return new CredentialService(rpc);
 }

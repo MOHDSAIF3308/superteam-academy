@@ -5,6 +5,8 @@ import { CourseCard } from './CourseCard'
 import { Input } from '@/components/ui'
 import { Course } from '@/lib/types'
 import { useI18n } from '@/lib/hooks/useI18n'
+import { useSession } from 'next-auth/react'
+import { useWallet } from '@/lib/hooks/useWallet'
 
 interface CourseCatalogProps {
   courses: Course[]
@@ -12,15 +14,56 @@ interface CourseCatalogProps {
 
 export function CourseCatalog({ courses }: CourseCatalogProps) {
   const { t } = useI18n()
+  const { data: session } = useSession()
+  const { walletAddress } = useWallet()
   const [search, setSearch] = useState('')
   const [difficulty, setDifficulty] = useState<string>('')
   const [track, setTrack] = useState<string>('')
   const [mounted, setMounted] = useState(false)
+  const [enrolledCourseIds, setEnrolledCourseIds] = useState<Set<string>>(new Set())
 
   // Ensure component is mounted before rendering to avoid hydration mismatch
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    const userId =
+      ((session?.user as any)?.id as string | undefined) ||
+      session?.user?.email ||
+      walletAddress ||
+      null
+
+    if (!userId) {
+      setEnrolledCourseIds(new Set())
+      return
+    }
+    const currentUserId = userId
+
+    let cancelled = false
+
+    async function fetchEnrollments() {
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(currentUserId)}/enrollments`, {
+          cache: 'no-store',
+        })
+        if (!response.ok) return
+
+        const enrollments = await response.json()
+        if (cancelled || !Array.isArray(enrollments)) return
+
+        setEnrolledCourseIds(new Set(enrollments.map((e: any) => String(e.courseId))))
+      } catch (error) {
+        console.warn('Failed to fetch enrollments:', error)
+      }
+    }
+
+    void fetchEnrollments()
+
+    return () => {
+      cancelled = true
+    }
+  }, [session, walletAddress])
 
   const filteredCourses = courses.filter((course) => {
     const matchesSearch =
@@ -76,7 +119,18 @@ export function CourseCatalog({ courses }: CourseCatalogProps) {
       {/* Course Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredCourses.map((course) => (
-          <CourseCard key={course.id} course={course} />
+          <CourseCard
+            key={course.id}
+            course={course}
+            isEnrolled={enrolledCourseIds.has(course.id)}
+            onEnrollmentSuccess={() => {
+              setEnrolledCourseIds((previous) => {
+                const next = new Set(previous)
+                next.add(course.id)
+                return next
+              })
+            }}
+          />
         ))}
       </div>
 
