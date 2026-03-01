@@ -51,10 +51,8 @@ export default function DashboardPage() {
     }
   }, [])
   const { balance: onChainXp, isLoading: onChainXpLoading } = useXPBalance(publicKey || undefined, xpMint)
-  const offChainXp = stats?.totalXP || 0
-  const totalXp = connected
-    ? (onChainXp > 0 ? onChainXp : offChainXp)
-    : offChainXp
+  const offChainXp = stats?.totalXP ?? 0
+  const totalXp = connected ? Math.max(offChainXp, onChainXp) : offChainXp
   const level = Math.max(stats?.level || 1, calculateLevel(totalXp), 1)
   const currentLevelXp = level * level * 100
   const nextLevelXp = (level + 1) * (level + 1) * 100
@@ -353,7 +351,21 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Action Button */}
-                    {courseSlug ? (
+                    {enrollment.completedAt ? (
+                      // Course Completed - Show Certificate
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-neon-green/20 border border-neon-green rounded-lg">
+                          <span className="text-lg">🎓</span>
+                          <span className="text-sm font-semibold text-neon-green">Course Completed!</span>
+                        </div>
+                        <Link href="/certificates" className="block">
+                          <Button className="w-full" size="sm" variant="primary">
+                            View Certificate 📜
+                          </Button>
+                        </Link>
+                      </div>
+                    ) : courseSlug ? (
+                      // In Progress - Continue Learning
                       <Link href={`/courses/${courseSlug}`} className="block">
                         <Button className="w-full" size="sm">
                           Continue Learning →

@@ -13,6 +13,7 @@ import { useWallet } from '@/lib/hooks/useWallet'
 import { useXPBalance } from '@/lib/hooks/useXPBalance'
 import { useCredentials } from '@/lib/hooks/useXp'
 import { getAchievementServiceInstance } from '@/lib/services/achievement.service'
+import { SkillRadar, demoSkillData, calculateSkillsFromProgress } from '@/components/profile'
 
 interface ProfileUser {
   id: string
@@ -56,10 +57,8 @@ export default function ProfilePage() {
   const { balance: onChainXp } = useXPBalance(publicKey || undefined, xpMint)
   const { data: credentials = [], isLoading: credentialsLoading } = useCredentials(publicKey || undefined)
   const { stats, loading: statsLoading } = useGamification(undefined, { userId })
-  const offChainXp = stats?.totalXP ?? user?.totalXP ?? 0
-  const totalXp = connected
-    ? (onChainXp > 0 ? onChainXp : offChainXp)
-    : offChainXp
+  const offChainXp = Math.max(stats?.totalXP ?? 0, user?.totalXP ?? 0)
+  const totalXp = connected ? Math.max(offChainXp, onChainXp) : offChainXp
   const level = Math.max(stats?.level ?? user?.level ?? 1, calculateLevel(totalXp), 1)
 
   const completedCourses = 0

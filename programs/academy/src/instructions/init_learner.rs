@@ -22,8 +22,6 @@ pub fn init_learner(ctx: Context<InitLearnerAccounts>) -> Result<()> {
     Ok(())
 }
 
-pub struct InitLearner;
-
 #[derive(Accounts)]
 pub struct InitLearnerAccounts<'info> {
     #[account(
@@ -34,6 +32,7 @@ pub struct InitLearnerAccounts<'info> {
         bump
     )]
     pub learner: Account<'info, LearnerProfile>,
+    #[account(mut)]
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
 }

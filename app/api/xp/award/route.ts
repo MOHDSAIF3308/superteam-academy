@@ -1,6 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 
+function normalizeUserId(rawUserId: string): string {
+  return rawUserId.includes('@') ? rawUserId.toLowerCase() : rawUserId
+}
+
+function userIdCandidates(rawUserId: string): string[] {
+  const normalized = normalizeUserId(rawUserId)
+  return Array.from(new Set([normalized, rawUserId, rawUserId.toLowerCase()]))
+}
+
+async function resolveCanonicalUserId(supabase: any, rawUserId: string): Promise<string | null> {
+  for (const candidate of userIdCandidates(rawUserId)) {
+    let { data: user } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', candidate)
+      .maybeSingle()
+
+    if (!user) {
+      const byEmail = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', candidate)
+        .maybeSingle()
+      user = byEmail.data
+    }
+
+    if (!user) {
+      const byWallet = await supabase
+        .from('users')
+        .select('id')
+        .eq('wallet_address', candidate)
+        .maybeSingle()
+      user = byWallet.data
+    }
+
+    if (user?.id) {
+      return user.id
+    }
+  }
+
+  return null
+}
+
+async function ensureCanonicalUserId(supabase: any, rawUserId: string): Promise<string> {
+  const existingId = await resolveCanonicalUserId(supabase, rawUserId)
+  if (existingId) return existingId
+
+  const normalizedUserId = normalizeUserId(rawUserId)
+  const walletLikeId = !normalizedUserId.includes('@')
+  const { error: userInsertError } = await supabase.from('users').insert({
+    id: normalizedUserId,
+    email: walletLikeId ? null : normalizedUserId,
+    display_name: walletLikeId ? `${String(normalizedUserId).slice(0, 8)}...` : null,
+    total_xp: 0,
+    level: 0,
+    current_streak: 0,
+  })
+
+  if (!userInsertError) return normalizedUserId
+
+  const resolvedAfterInsert = await resolveCanonicalUserId(supabase, rawUserId)
+  if (resolvedAfterInsert) return resolvedAfterInsert
+
+  throw userInsertError
+}
+
+async function findEnrollment(
+  supabase: any,
+  userIds: string[],
+  courseId: string
+): Promise<any | null> {
+  for (const candidateUserId of userIds) {
+    const { data: enrollment, error } = await supabase
+      .from('enrollments')
+      .select('*')
+      .eq('user_id', candidateUserId)
+      .eq('course_id', courseId)
+      .maybeSingle()
+
+    if (error) throw error
+    if (enrollment) return enrollment
+  }
+
+  return null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId, courseId, lessonId, xpAmount } = await request.json()
@@ -23,55 +109,36 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Ensure user exists for FK-safe writes from wallet-only sessions.
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (!existingUser) {
-      const walletLikeId = !String(userId).includes('@')
-      const { error: userInsertError } = await supabase.from('users').insert({
-        id: userId,
-        email: walletLikeId ? null : String(userId).toLowerCase(),
-        display_name: walletLikeId ? `${String(userId).slice(0, 8)}...` : null,
-        total_xp: 0,
-        level: 0,
-        current_streak: 0,
-      })
-      if (userInsertError) throw userInsertError
-    }
+    const canonicalUserId = await ensureCanonicalUserId(supabase, String(userId))
+    const candidateUserIds = Array.from(
+      new Set([canonicalUserId, ...userIdCandidates(String(userId))])
+    )
 
     // Get enrollment
-    const { data: enrollment, error: enrollError } = await supabase
-      .from('enrollments')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('course_id', courseId)
-      .maybeSingle()
-
-    if (enrollError || !enrollment) {
+    const enrollment = await findEnrollment(supabase, candidateUserIds, String(courseId))
+    if (!enrollment) {
       return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 })
     }
 
     // Check if lesson already completed
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('lesson_progress')
       .select('id')
-      .eq('user_id', userId)
+      .in('user_id', candidateUserIds)
       .eq('course_id', courseId)
       .eq('lesson_id', lessonId)
-      .maybeSingle()
+      .limit(1)
 
-    if (existing) {
+    if (existingError) throw existingError
+
+    if (existing && existing.length > 0) {
       return NextResponse.json({ error: 'Lesson already completed' }, { status: 400 })
     }
 
     // Record lesson completion
     const { error: lessonInsertError } = await supabase.from('lesson_progress').insert({
       id: randomUUID(),
-      user_id: userId,
+      user_id: canonicalUserId,
       lesson_id: lessonId,
       course_id: courseId,
       completed: 1,
@@ -105,7 +172,7 @@ export async function POST(request: NextRequest) {
     // Record XP transaction
     const { error: txInsertError } = await supabase.from('xp_transactions').insert({
       id: randomUUID(),
-      user_id: userId,
+      user_id: canonicalUserId,
       amount: xpAmount,
       reason: lessonId.startsWith('enroll-')
         ? `Enrollment bonus for course: ${courseId}`
@@ -120,16 +187,17 @@ export async function POST(request: NextRequest) {
     const { data: user } = await supabase
       .from('users')
       .select('total_xp')
-      .eq('id', userId)
-      .single()
+      .eq('id', canonicalUserId)
+      .maybeSingle()
 
     const totalXp = (user?.total_xp || 0) + xpAmount
     const level = Math.floor(Math.sqrt(totalXp / 100))
 
-    await supabase
+    const { error: updateUserError } = await supabase
       .from('users')
       .update({ total_xp: totalXp, level })
-      .eq('id', userId)
+      .eq('id', canonicalUserId)
+    if (updateUserError) throw updateUserError
 
     return NextResponse.json(
       { xpAwarded: xpAmount, totalXp, level, message: 'XP awarded successfully' },

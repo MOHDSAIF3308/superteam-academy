@@ -1,126 +1,104 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, TokenAccount, Transfer};
-use crate::state::{Config, Course, Enrollment, LearnerProfile};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
-pub fn complete_lesson(
-    ctx: Context<CompleteLessonAccounts>,
-    lesson_index: u8,
-    xp_amount: u32,
-) -> Result<()> {
-    let config = &ctx.accounts.config;
+use crate::{
+    errors::AcademyError,
+    state::{Config, Course, Enrollment},
+    utils::mint_xp,
+};
+
+pub fn complete_lesson(ctx: Context<CompleteLesson>, lesson_index: u8) -> Result<()> {
+    require_keys_eq!(
+        ctx.accounts.backend_signer.key(),
+        ctx.accounts.config.backend_signer,
+        AcademyError::BackendSignerMismatch
+    );
+    require_keys_eq!(
+        ctx.accounts.xp_mint.key(),
+        ctx.accounts.config.xp_mint,
+        AcademyError::MintMismatch
+    );
+
     let course = &ctx.accounts.course;
     let enrollment = &mut ctx.accounts.enrollment;
-    let learner = &mut ctx.accounts.learner;
-    let user = &ctx.accounts.user;
 
-    // Verify backend signer
+    require!(course.is_active, AcademyError::CourseNotActive);
     require!(
-        ctx.accounts.backend_signer.key() == config.backend_signer,
-        crate::errors::AcademyError::BackendSignerMismatch
+        enrollment.course_id == course.course_id,
+        AcademyError::InvalidCourseId
     );
-
-    // Check lesson index valid
+    require_keys_eq!(
+        enrollment.learner,
+        ctx.accounts.learner.key(),
+        AcademyError::Unauthorized
+    );
     require!(
         lesson_index < course.lesson_count,
-        crate::errors::AcademyError::InvalidLessonIndex
+        AcademyError::LessonOutOfBounds
     );
-
-    // Check lesson not already completed
     require!(
         !enrollment.is_lesson_complete(lesson_index),
-        crate::errors::AcademyError::LessonAlreadyCompleted
+        AcademyError::LessonAlreadyCompleted
     );
 
-    // Check daily XP limit
-    let today = Clock::get()?.unix_timestamp / 86400; // Days since epoch
-    let last_day = learner.last_activity / 86400;
-    
-    if today > last_day {
-        // Reset daily counter
-        learner.xp_earned_today = 0;
-    }
-
-    let new_daily_total = learner.xp_earned_today
-        .checked_add(xp_amount)
-        .ok_or(crate::errors::AcademyError::ArithmeticOverflow)?;
-
-    require!(
-        new_daily_total <= config.daily_xp_cap,
-        crate::errors::AcademyError::DailyXPLimitExceeded
+    require_keys_eq!(
+        ctx.accounts.learner_token_account.owner,
+        ctx.accounts.learner.key(),
+        AcademyError::InvalidTokenAccount
+    );
+    require_keys_eq!(
+        ctx.accounts.learner_token_account.mint,
+        ctx.accounts.xp_mint.key(),
+        AcademyError::MintMismatch
     );
 
-    // Update learner XP
-    learner.total_xp = learner.total_xp
-        .checked_add(xp_amount)
-        .ok_or(crate::errors::AcademyError::ArithmeticOverflow)?;
-    learner.season_xp = learner.season_xp
-        .checked_add(xp_amount)
-        .ok_or(crate::errors::AcademyError::ArithmeticOverflow)?;
-    learner.xp_earned_today = new_daily_total;
-    learner.last_activity = Clock::get()?.unix_timestamp;
-
-    // Update streak
-    if today > last_day + 1 {
-        // Missed a day - reset unless frozen
-        if learner.streak_freezes > 0 {
-            learner.streak_freezes -= 1;
-        } else {
-            learner.current_streak = 0;
-        }
-    }
-    
-    learner.current_streak = learner.current_streak.saturating_add(1);
-    if learner.current_streak > learner.longest_streak {
-        learner.longest_streak = learner.current_streak;
-    }
-
-    // Mark lesson complete
     enrollment.set_lesson_complete(lesson_index)?;
+    mint_xp(
+        &ctx.accounts.config,
+        &ctx.accounts.xp_mint,
+        &ctx.accounts.learner_token_account,
+        &ctx.accounts.token_program,
+        course.xp_per_lesson as u64,
+    )?;
 
-    // Mint XP tokens
-    let cpi_accounts = Transfer {
-        from: ctx.accounts.xp_mint.to_account_info(), // This is not correct, should be mint not from
-        to: ctx.accounts.user_xp_ata.to_account_info(),
-        authority: ctx.accounts.backend_signer.to_account_info(),
-    };
-    
-    // Note: In production, use token::mint_to instead
-    // This is simplified for demonstration
-    
-    msg!("✅ Lesson {} completed, {} XP awarded to {}", lesson_index, xp_amount, user.key());
-
-    emit!(LessonCompletedEvent {
-        user: user.key(),
+    emit!(LessonCompleted {
+        learner: ctx.accounts.learner.key(),
         course_id: course.course_id.clone(),
         lesson_index,
-        xp_amount,
+        xp_earned: course.xp_per_lesson,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())
 }
 
-pub struct CompleteLessonAccounts<'info> {
+#[derive(Accounts)]
+pub struct CompleteLesson<'info> {
+    #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
+    #[account(seeds = [b"course", course.course_id.as_bytes()], bump = course.bump)]
     pub course: Account<'info, Course>,
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"enrollment", enrollment.course_id.as_bytes(), learner.key().as_ref()],
+        bump = enrollment.bump
+    )]
     pub enrollment: Account<'info, Enrollment>,
+    /// CHECK: Learner pubkey used for ownership checks and enrollment seed validation.
+    pub learner: UncheckedAccount<'info>,
     #[account(mut)]
-    pub learner: Account<'info, LearnerProfile>,
+    pub learner_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut)]
-    pub xp_mint: Account<'info, Mint>,
-    #[account(mut)]
-    pub user_xp_ata: Account<'info, TokenAccount>,
-    pub user: UncheckedAccount<'info>,
+    pub xp_mint: InterfaceAccount<'info, Mint>,
     pub backend_signer: Signer<'info>,
-    pub token_program: Program<'info, token::Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[event]
-pub struct LessonCompletedEvent {
-    pub user: Pubkey,
+pub struct LessonCompleted {
+    pub learner: Pubkey,
     pub course_id: String,
     pub lesson_index: u8,
-    pub xp_amount: u32,
+    pub xp_earned: u32,
+    pub timestamp: i64,
 }
-
-pub struct CompleteLesson;

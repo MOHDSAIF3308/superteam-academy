@@ -1,33 +1,30 @@
 use anchor_lang::prelude::*;
-use crate::state::Config;
 
-pub fn update_config(
-    ctx: Context<UpdateConfigAccounts>,
-    new_authority: Option<Pubkey>,
-    new_backend_signer: Option<Pubkey>,
-    min_completions_for_reward: Option<u32>,
-) -> Result<()> {
+use crate::{errors::AcademyError, state::{Config, ConfigUpdate}};
+
+pub fn update_config(ctx: Context<UpdateConfig>, changes: ConfigUpdate) -> Result<()> {
     let config = &mut ctx.accounts.config;
 
-    if let Some(authority) = new_authority {
-        config.authority = authority;
-    }
-    if let Some(signer) = new_backend_signer {
-        config.backend_signer = signer;
-    }
-    if let Some(min) = min_completions_for_reward {
-        config.min_completions_for_reward = min;
+    require_keys_eq!(
+        ctx.accounts.authority.key(),
+        config.authority,
+        AcademyError::Unauthorized
+    );
+
+    if let Some(new_backend_signer) = changes.new_backend_signer {
+        config.backend_signer = new_backend_signer;
     }
 
-    msg!("✅ Config updated");
+    emit!(crate::instructions::initialize::ConfigUpdated {
+        authority: config.authority,
+    });
+
     Ok(())
 }
 
-pub struct UpdateConfig;
-
 #[derive(Accounts)]
-pub struct UpdateConfigAccounts<'info> {
-    #[account(mut)]
+pub struct UpdateConfig<'info> {
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
     pub authority: Signer<'info>,
 }

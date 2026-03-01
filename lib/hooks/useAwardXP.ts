@@ -82,8 +82,11 @@ export function useAwardXP() {
 
       try {
         // Call XP award API
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-        const response = await fetch(`${apiUrl}/api/xp/award`, {
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '')
+        const xpAwardEndpoint = apiBase
+          ? `${apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`}/xp/award`
+          : '/api/xp/award'
+        const response = await fetch(xpAwardEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

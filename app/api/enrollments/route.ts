@@ -1,6 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 
+function normalizeUserId(rawUserId: string): string {
+  return rawUserId.includes('@') ? rawUserId.toLowerCase() : rawUserId
+}
+
+function userIdCandidates(rawUserId: string): string[] {
+  const normalized = normalizeUserId(rawUserId)
+  return Array.from(new Set([normalized, rawUserId, rawUserId.toLowerCase()]))
+}
+
+async function resolveCanonicalUserId(supabase: any, rawUserId: string): Promise<string | null> {
+  for (const candidate of userIdCandidates(rawUserId)) {
+    let { data: user } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', candidate)
+      .maybeSingle()
+
+    if (!user) {
+      const byEmail = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', candidate)
+        .maybeSingle()
+      user = byEmail.data
+    }
+
+    if (!user) {
+      const byWallet = await supabase
+        .from('users')
+        .select('id')
+        .eq('wallet_address', candidate)
+        .maybeSingle()
+      user = byWallet.data
+    }
+
+    if (user?.id) {
+      return user.id
+    }
+  }
+
+  return null
+}
+
+async function ensureCanonicalUserId(supabase: any, rawUserId: string): Promise<string> {
+  const existingId = await resolveCanonicalUserId(supabase, rawUserId)
+  if (existingId) return existingId
+
+  const normalizedUserId = normalizeUserId(rawUserId)
+  const walletLikeId = !normalizedUserId.includes('@')
+  const { error: userInsertError } = await supabase.from('users').insert({
+    id: normalizedUserId,
+    email: walletLikeId ? null : normalizedUserId,
+    display_name: walletLikeId ? `${String(normalizedUserId).slice(0, 8)}...` : null,
+    total_xp: 0,
+    level: 0,
+    current_streak: 0,
+  })
+
+  if (!userInsertError) return normalizedUserId
+
+  const resolvedAfterInsert = await resolveCanonicalUserId(supabase, rawUserId)
+  if (resolvedAfterInsert) return resolvedAfterInsert
+
+  throw userInsertError
+}
+
+async function findEnrollment(
+  supabase: any,
+  userIds: string[],
+  courseId: string
+): Promise<any | null> {
+  for (const candidateUserId of userIds) {
+    const { data: enrollment, error } = await supabase
+      .from('enrollments')
+      .select('id, course_id')
+      .eq('user_id', candidateUserId)
+      .eq('course_id', courseId)
+      .maybeSingle()
+
+    if (error) throw error
+    if (enrollment) return enrollment
+  }
+
+  return null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId, courseId } = await request.json()
@@ -23,33 +109,13 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Ensure a user row exists so enrollment/XP writes don't fail on FK constraints.
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (!existingUser) {
-      const walletLikeId = !String(userId).includes('@')
-      const { error: userInsertError } = await supabase.from('users').insert({
-        id: userId,
-        email: walletLikeId ? null : String(userId).toLowerCase(),
-        display_name: walletLikeId ? `${String(userId).slice(0, 8)}...` : null,
-        total_xp: 0,
-        level: 0,
-        current_streak: 0,
-      })
-      if (userInsertError) throw userInsertError
-    }
+    const canonicalUserId = await ensureCanonicalUserId(supabase, String(userId))
+    const candidateUserIds = Array.from(
+      new Set([canonicalUserId, ...userIdCandidates(String(userId))])
+    )
 
     // Check if already enrolled
-    const { data: existing } = await supabase
-      .from('enrollments')
-      .select('id, course_id')
-      .eq('user_id', userId)
-      .eq('course_id', courseId)
-      .maybeSingle()
+    const existing = await findEnrollment(supabase, candidateUserIds, String(courseId))
 
     if (existing) {
       return NextResponse.json(existing, { status: 200 })
@@ -60,7 +126,7 @@ export async function POST(request: NextRequest) {
       .from('enrollments')
       .insert({
         id: randomUUID(),
-        user_id: userId,
+        user_id: canonicalUserId,
         course_id: courseId,
         enrolled_at: new Date().toISOString(),
         lessons_completed: 0,

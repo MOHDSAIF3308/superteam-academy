@@ -8,7 +8,7 @@ pub fn register_referral(ctx: Context<RegisterReferralAccounts>) -> Result<()> {
     // Mark referred as having a referrer
     require!(
         !referred.has_referrer,
-        anchor_lang::error!(crate::errors::AcademyError::UnauthorizedSigner)
+        crate::errors::AcademyError::UnauthorizedSigner
     );
 
     referred.has_referrer = true;
@@ -26,6 +26,7 @@ pub fn register_referral(ctx: Context<RegisterReferralAccounts>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Accounts)]
 pub struct RegisterReferralAccounts<'info> {
     #[account(mut)]
     pub referrer: Account<'info, LearnerProfile>,
@@ -39,5 +40,3 @@ pub struct ReferralRegisteredEvent {
     pub referrer: Pubkey,
     pub referred: Pubkey,
 }
-
-pub struct RegisterReferral;

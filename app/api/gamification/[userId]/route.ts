@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+interface CanonicalUser {
+  id: string
+  total_xp: number | null
+  level: number | null
+  current_streak: number | null
+  longest_streak: number | null
+  wallet_address: string | null
+}
+
 function emptyStats() {
   return {
     totalXP: 0,
@@ -17,20 +26,72 @@ function emptyStats() {
   }
 }
 
-async function resolveCanonicalUser(supabase: any, rawUserId: string) {
+function userIdCandidates(rawUserId: string): string[] {
+  return Array.from(new Set([rawUserId, rawUserId.toLowerCase()]))
+}
+
+function parseOnchainAmount(data: any): number | null {
+  if (typeof data?.uiAmount === 'number' && Number.isFinite(data.uiAmount)) {
+    return data.uiAmount
+  }
+
+  if (typeof data?.uiAmountString === 'string') {
+    const parsed = Number(data.uiAmountString)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  const amount = Number(data?.amount)
+  if (!Number.isFinite(amount)) {
+    return null
+  }
+
+  const decimals = Number(data?.decimals || 0)
+  return decimals > 0 ? amount / 10 ** decimals : amount
+}
+
+async function fetchOnchainXp(walletAddress: string | null | undefined): Promise<number | null> {
+  if (!walletAddress) return null
+
+  const mint = process.env.NEXT_PUBLIC_XP_TOKEN_MINT || process.env.XP_TOKEN_MINT
+  const heliusApiKey = process.env.NEXT_PUBLIC_HELIUS_API_KEY || process.env.HELIUS_API_KEY
+
+  if (!mint || !heliusApiKey) return null
+
+  try {
+    const response = await fetch(`https://api.helius.xyz/v0/token/balance?api_key=${heliusApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mint,
+        owner: walletAddress,
+      }),
+      cache: 'no-store',
+    })
+
+    if (!response.ok) return null
+    const data = await response.json()
+    return parseOnchainAmount(data)
+  } catch {
+    return null
+  }
+}
+
+async function resolveCanonicalUser(supabase: any, rawUserId: string): Promise<CanonicalUser | null> {
   const candidates = Array.from(new Set([rawUserId, rawUserId.toLowerCase()]))
 
   for (const candidate of candidates) {
     let { data: user } = await supabase
       .from('users')
-      .select('id, total_xp, level, current_streak, longest_streak')
+      .select('id, total_xp, level, current_streak, longest_streak, wallet_address')
       .eq('id', candidate)
       .maybeSingle()
 
     if (!user) {
       const { data: byEmail } = await supabase
         .from('users')
-        .select('id, total_xp, level, current_streak, longest_streak')
+        .select('id, total_xp, level, current_streak, longest_streak, wallet_address')
         .eq('email', candidate)
         .maybeSingle()
       user = byEmail
@@ -39,14 +100,14 @@ async function resolveCanonicalUser(supabase: any, rawUserId: string) {
     if (!user) {
       const { data: byWallet } = await supabase
         .from('users')
-        .select('id, total_xp, level, current_streak, longest_streak')
+        .select('id, total_xp, level, current_streak, longest_streak, wallet_address')
         .eq('wallet_address', candidate)
         .maybeSingle()
       user = byWallet
     }
 
     if (user) {
-      return user
+      return user as CanonicalUser
     }
   }
 
@@ -83,45 +144,50 @@ export async function GET(
     if (!user) {
       return NextResponse.json(emptyStats(), { status: 200 })
     }
-    const canonicalUserId = user.id || userId
-
-    // Get lessons completed count
-    const { data: lessons, error: lessonsError } = await supabase
-      .from('lesson_progress')
-      .select('id')
-      .eq('user_id', canonicalUserId)
+    const candidateUserIds = Array.from(new Set([user.id, ...userIdCandidates(userId)]))
+    const today = new Date().toISOString().split('T')[0]
+    const [
+      { data: lessons, error: lessonsError },
+      { data: todayLessons, error: todayError },
+      { data: achievements, error: achievementsError },
+      { data: xpTransactions, error: xpTxError },
+      onchainXp,
+    ] = await Promise.all([
+      supabase.from('lesson_progress').select('id').in('user_id', candidateUserIds),
+      supabase
+        .from('lesson_progress')
+        .select('id')
+        .in('user_id', candidateUserIds)
+        .gte('completed_at', `${today}T00:00:00`),
+      supabase.from('user_achievements').select('id').in('user_id', candidateUserIds),
+      supabase.from('xp_transactions').select('amount').in('user_id', candidateUserIds),
+      fetchOnchainXp(user.wallet_address),
+    ])
 
     if (lessonsError) throw lessonsError
-
-    // Get lessons completed today
-    const today = new Date().toISOString().split('T')[0]
-    const { data: todayLessons, error: todayError } = await supabase
-      .from('lesson_progress')
-      .select('id')
-      .eq('user_id', canonicalUserId)
-      .gte('completed_at', `${today}T00:00:00`)
-
     if (todayError) throw todayError
-
-    // Get achievements count
-    const { data: achievements, error: achievementsError } = await supabase
-      .from('user_achievements')
-      .select('id')
-      .eq('user_id', canonicalUserId)
-
     if (achievementsError) throw achievementsError
+    if (xpTxError) throw xpTxError
+
+    const dbXp = Number(user.total_xp || 0)
+    const txXp = (xpTransactions || []).reduce(
+      (sum: number, entry: { amount?: number | null }) => sum + Number(entry?.amount || 0),
+      0
+    )
+    const totalXP = Math.max(dbXp, txXp, Number(onchainXp || 0))
 
     // Calculate XP progress for next level
     const xpPerLevel = 100
-    const currentLevelXp = user.level * user.level * xpPerLevel
-    const nextLevelXp = (user.level + 1) * (user.level + 1) * xpPerLevel
-    const xpInCurrentLevel = user.total_xp - currentLevelXp
+    const level = Math.max(Math.floor(Math.sqrt(totalXP / xpPerLevel)), 1)
+    const currentLevelXp = level * level * xpPerLevel
+    const nextLevelXp = (level + 1) * (level + 1) * xpPerLevel
+    const xpInCurrentLevel = totalXP - currentLevelXp
     const xpNeededForNextLevel = nextLevelXp - currentLevelXp
 
     return NextResponse.json(
       {
-        totalXP: user.total_xp || 0,
-        level: user.level || 1,
+        totalXP,
+        level,
         currentStreak: user.current_streak || 0,
         longestStreak: user.longest_streak || 0,
         achievementsUnlocked: achievements?.length || 0,

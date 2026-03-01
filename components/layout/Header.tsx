@@ -28,6 +28,7 @@ export function Header() {
             <NavLink href="/courses">{t('nav.courses')}</NavLink>
             <NavLink href="/dashboard">{t('nav.dashboard')}</NavLink>
             <NavLink href="/leaderboard">{t('nav.leaderboard')}</NavLink>
+            <NavLink href="/certificates">{t('profile.credentials')}</NavLink>
             <NavLink href="/profile">{t('nav.profile')}</NavLink>
           </nav>
 
@@ -69,6 +70,7 @@ export function Header() {
             <NavLink href="/courses">{t('nav.courses')}</NavLink>
             <NavLink href="/dashboard">{t('nav.dashboard')}</NavLink>
             <NavLink href="/leaderboard">{t('nav.leaderboard')}</NavLink>
+            <NavLink href="/certificates">{t('profile.credentials')}</NavLink>
             <NavLink href="/profile">{t('nav.profile')}</NavLink>
           </nav>
         )}

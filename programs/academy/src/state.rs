@@ -1,157 +1,220 @@
 use anchor_lang::prelude::*;
 
-/// Global program configuration
+pub const MAX_COURSE_ID_LEN: usize = 64;
+pub const MAX_MINTER_LABEL_LEN: usize = 32;
+pub const MAX_ACHIEVEMENT_ID_LEN: usize = 64;
+pub const MAX_ACHIEVEMENT_NAME_LEN: usize = 64;
+pub const MAX_METADATA_URI_LEN: usize = 200;
+pub const MAX_LESSONS: u8 = 256;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct I80F48 {
+    pub value: i128,
+}
+
+impl I80F48 {
+    pub fn from_u64(v: u64) -> Self {
+        Self { value: v as i128 }
+    }
+
+    pub fn as_u64(self) -> Result<u64> {
+        require!(self.value >= 0, crate::errors::AcademyError::InvalidAmount);
+        u64::try_from(self.value).map_err(|_| error!(crate::errors::AcademyError::InvalidAmount))
+    }
+
+    pub fn checked_add(self, rhs: Self) -> Result<Self> {
+        self.value
+            .checked_add(rhs.value)
+            .map(|value| Self { value })
+            .ok_or_else(|| error!(crate::errors::AcademyError::Overflow))
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
+pub struct ConfigUpdate {
+    pub new_backend_signer: Option<Pubkey>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct CreateCourseParams {
+    pub course_id: String,
+    pub creator: Pubkey,
+    pub content_tx_id: [u8; 32],
+    pub lesson_count: u8,
+    pub difficulty: u8,
+    pub xp_per_lesson: u32,
+    pub track_id: u32,
+    pub track_level: u32,
+    pub prerequisite: Option<Pubkey>,
+    pub creator_reward_xp: u32,
+    pub min_completions_for_reward: u32,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
+pub struct CourseUpdate {
+    pub new_content_tx_id: Option<[u8; 32]>,
+    pub new_is_active: Option<bool>,
+    pub new_xp_per_lesson: Option<u32>,
+    pub new_creator_reward_xp: Option<u32>,
+    pub new_min_completions_for_reward: Option<u32>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct RegisterMinterParams {
+    pub minter: Pubkey,
+    pub label: String,
+    pub max_xp_per_call: I80F48,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct CreateAchievementTypeParams {
+    pub achievement_id: String,
+    pub name: String,
+    pub metadata_uri: String,
+    pub max_supply: u32,
+    pub xp_reward: u32,
+}
+
 #[account]
 pub struct Config {
-    /// Authority that can update this config
     pub authority: Pubkey,
-    /// Backend keypair that signs lesson completion TXs
     pub backend_signer: Pubkey,
-    /// Current XP token mint (fungible)
-    pub current_mint: Pubkey,
-    /// Current season number
-    pub current_season: u32,
-    /// Whether current season is closed
-    pub season_closed: bool,
-    /// Minimum course completions before creator gets reward
-    pub min_completions_for_reward: u32,
-    /// Daily XP cap per learner
-    pub daily_xp_cap: u32,
-    /// Bump seed for PDA
+    pub xp_mint: Pubkey,
     pub bump: u8,
 }
 
-/// Course information
+impl Config {
+    pub const LEN: usize = 32 + 32 + 32 + 1;
+}
+
 #[account]
 pub struct Course {
-    /// Unique course identifier
     pub course_id: String,
-    /// Course title
-    pub title: String,
-    /// Category/track (e.g., "solana-basics")
-    pub category: String,
-    /// Number of lessons in course
-    pub lesson_count: u8,
-    /// XP earned per learner on completion
-    pub xp_reward: u32,
-    /// Creator reward XP when someone completes
-    pub creator_reward_xp: u32,
-    /// Difficulty level (1-5)
-    pub difficulty: u8,
-    /// Course creator
     pub creator: Pubkey,
-    /// Is course active for enrollment
-    pub is_active: bool,
-    /// Total learners who completed
-    pub total_completions: u32,
-    /// Course version (for updates)
-    pub version: u32,
-    /// Optional prerequisite course
+    pub content_tx_id: [u8; 32],
+    pub lesson_count: u8,
+    pub difficulty: u8,
+    pub xp_per_lesson: u32,
+    pub track_id: u32,
+    pub track_level: u32,
     pub prerequisite: Option<Pubkey>,
-    /// Bump seed
+    pub creator_reward_xp: u32,
+    pub min_completions_for_reward: u32,
+    pub completion_count: u32,
+    pub is_active: bool,
+    pub created_at: i64,
     pub bump: u8,
 }
 
-/// Learner profile - tracks XP, streaks, achievements
-#[account]
-pub struct LearnerProfile {
-    /// Learner's wallet address
-    pub user: Pubkey,
-    /// Total XP earned (across all seasons)
-    pub total_xp: u32,
-    /// Current season XP (resets each season)
-    pub season_xp: u32,
-    /// XP earned today (for daily cap)
-    pub xp_earned_today: u32,
-    /// Last activity date (for daily reset)
-    pub last_activity: i64,
-    /// Current learning streak (days)
-    pub current_streak: u16,
-    /// Longest streak (days)
-    pub longest_streak: u16,
-    /// Streak freeze count (free passes)
-    pub streak_freezes: u8,
-    /// Bitmap of unlocked achievements (8 bytes = 64 slots)
-    pub achievement_flags: u64,
-    /// Total courses completed
-    pub courses_completed: u32,
-    /// Whether learner has referrer
-    pub has_referrer: bool,
-    /// Number of referrals made
-    pub referral_count: u16,
-    /// Account bump
-    pub bump: u8,
+impl Course {
+    pub const LEN: usize = (4 + MAX_COURSE_ID_LEN)
+        + 32
+        + 32
+        + 1
+        + 1
+        + 4
+        + 4
+        + 4
+        + (1 + 32)
+        + 4
+        + 4
+        + 4
+        + 1
+        + 8
+        + 1;
 }
 
-/// Enrollment in a course
 #[account]
 pub struct Enrollment {
-    /// Course enrolled in
     pub course_id: String,
-    /// Learner
-    pub user: Pubkey,
-    /// Bitmap of completed lessons (1 bit per lesson, up to 256)
-    pub lesson_flags: [u8; 32],
-    /// When all lessons completed (None if incomplete)
+    pub learner: Pubkey,
+    pub lesson_flags: [u64; 4],
+    pub enrolled_at: i64,
     pub completed_at: Option<i64>,
-    /// Course version when enrolled (for tracking updates)
-    pub enrolled_version: u32,
-    /// Bump seed
+    pub credential_asset: Option<Pubkey>,
     pub bump: u8,
 }
 
 impl Enrollment {
-    /// Check if lesson is completed
-    pub fn is_lesson_complete(&self, index: u8) -> bool {
-        let byte_index = index / 8;
-        let bit_index = index % 8;
-        if byte_index >= 32 {
-            return false;
-        }
-        (self.lesson_flags[byte_index as usize] >> bit_index) & 1 == 1
+    pub const LEN: usize = (4 + MAX_COURSE_ID_LEN) + 32 + 32 + 8 + (1 + 8) + (1 + 32) + 1;
+
+    pub fn is_lesson_complete(&self, lesson_index: u8) -> bool {
+        let word_index = (lesson_index / 64) as usize;
+        let bit_index = lesson_index % 64;
+        ((self.lesson_flags[word_index] >> bit_index) & 1) == 1
     }
 
-    /// Mark lesson as complete
-    pub fn set_lesson_complete(&mut self, index: u8) -> Result<()> {
-        let byte_index = index / 8;
-        let bit_index = index % 8;
-        if byte_index >= 32 {
-            return Err(error!(crate::errors::AcademyError::InvalidLessonIndex));
-        }
-        self.lesson_flags[byte_index as usize] |= 1 << bit_index;
+    pub fn set_lesson_complete(&mut self, lesson_index: u8) -> Result<()> {
+        require!(
+            lesson_index < MAX_LESSONS,
+            crate::errors::AcademyError::LessonOutOfBounds
+        );
+        let word_index = (lesson_index / 64) as usize;
+        let bit_index = lesson_index % 64;
+        self.lesson_flags[word_index] |= 1u64 << bit_index;
         Ok(())
     }
 
-    /// Count completed lessons
-    pub fn completed_count(&self) -> u32 {
-        let mut count = 0u32;
-        for byte in &self.lesson_flags {
-            count += byte.count_ones();
-        }
-        count
+    pub fn completed_lesson_count(&self) -> u32 {
+        self.lesson_flags.iter().map(|w| w.count_ones()).sum()
+    }
+
+    pub fn all_lessons_complete(&self, lesson_count: u8) -> bool {
+        self.completed_lesson_count() == lesson_count as u32
     }
 }
 
-/// Compressed account placeholder for credentials (Light Protocol)
-/// In production, this would be stored on Solana via Light Protocol
 #[account]
-pub struct Credential {
-    /// Learner who earned credential
-    pub learner: Pubkey,
-    /// Track ID (e.g., "solana-basics" = track 1)
-    pub track_id: u32,
-    /// Current level of credential
-    pub level: u32,
-    /// When issued
-    pub issued_at: i64,
-    /// Metadata hash (for Arweave)
-    pub metadata_hash: [u8; 32],
-    /// Bump seed
+pub struct MinterRole {
+    pub minter: Pubkey,
+    pub label: String,
+    pub max_xp_per_call: I80F48,
+    pub total_xp_minted: I80F48,
+    pub is_active: bool,
+    pub created_at: i64,
     pub bump: u8,
 }
 
-#[error_code]
-pub enum ProgramError {
-    #[msg("Generic error")]
-    Generic = 1,
+impl MinterRole {
+    pub const LEN: usize = 32 + (4 + MAX_MINTER_LABEL_LEN) + 16 + 16 + 1 + 8 + 1;
+}
+
+#[account]
+pub struct AchievementType {
+    pub achievement_id: String,
+    pub name: String,
+    pub metadata_uri: String,
+    pub collection: Pubkey,
+    pub current_supply: u32,
+    pub max_supply: u32,
+    pub xp_reward: u32,
+    pub is_active: bool,
+    pub created_at: i64,
+    pub bump: u8,
+}
+
+impl AchievementType {
+    pub const LEN: usize = (4 + MAX_ACHIEVEMENT_ID_LEN)
+        + (4 + MAX_ACHIEVEMENT_NAME_LEN)
+        + (4 + MAX_METADATA_URI_LEN)
+        + 32
+        + 4
+        + 4
+        + 4
+        + 1
+        + 8
+        + 1;
+}
+
+#[account]
+pub struct AchievementReceipt {
+    pub achievement_id: String,
+    pub recipient: Pubkey,
+    pub asset: Pubkey,
+    pub awarded_at: i64,
+    pub bump: u8,
+}
+
+impl AchievementReceipt {
+    pub const LEN: usize = (4 + MAX_ACHIEVEMENT_ID_LEN) + 32 + 32 + 8 + 1;
 }

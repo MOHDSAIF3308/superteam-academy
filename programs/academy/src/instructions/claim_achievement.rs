@@ -42,6 +42,7 @@ pub fn claim_achievement(
     Ok(())
 }
 
+#[derive(Accounts)]
 pub struct ClaimAchievementAccounts<'info> {
     pub config: Account<'info, Config>,
     #[account(mut)]
@@ -58,5 +59,3 @@ pub struct AchievementClaimedEvent {
     pub achievement_id: u8,
     pub xp_bonus: u32,
 }
-
-pub struct ClaimAchievement;

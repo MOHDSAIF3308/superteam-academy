@@ -17,6 +17,7 @@ pub fn award_streak_freeze(ctx: Context<AwardStreakFreezeAccounts>) -> Result<()
     Ok(())
 }
 
+#[derive(Accounts)]
 pub struct AwardStreakFreezeAccounts<'info> {
     #[account(mut)]
     pub learner: Account<'info, LearnerProfile>,
@@ -28,5 +29,3 @@ pub struct StreakFreezeAwardedEvent {
     pub user: Pubkey,
     pub freezes_remaining: u8,
 }
-
-pub struct AwardStreakFreeze;

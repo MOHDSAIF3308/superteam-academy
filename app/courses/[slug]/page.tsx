@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react'
 import { Course } from '@/lib/types'
 import { useWallet } from '@/lib/hooks/useWallet'
 import { useEnrollCourse, useEnrollment } from '@/lib/hooks/useOnchain'
+import { useCourseCompletion, useFinalizeCourse, useIssueCredential } from '@/lib/hooks/useCourseCompletion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
@@ -24,6 +25,8 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
   const [course, setCourse] = useState<Course | null>(null)
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
   const [dbEnrolled, setDbEnrolled] = useState(false)
+  const [isFinalizingCourse, setIsFinalizingCourse] = useState(false)
+  const [isIssuingCredential, setIsIssuingCredential] = useState(false)
   const { connected, publicKey, openWalletModal } = useWallet()
   const { mutateAsync: enrollOnChain, isPending: enrolling } = useEnrollCourse()
   const onChainCourseId = course?.onchainCourseId || course?.slug || course?.id
@@ -31,6 +34,18 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     onChainCourseId,
     publicKey || undefined
   )
+
+  const walletAddress = publicKey?.toBase58() || null
+  const userId =
+    ((session?.user as any)?.id as string | undefined) ||
+    session?.user?.email ||
+    walletAddress ||
+    null
+
+  // Check course completion status
+  const { data: completionStatus } = useCourseCompletion(course?.id, userId || undefined)
+  const { finalizeCourse } = useFinalizeCourse()
+  const { issueCredential } = useIssueCredential()
 
   useEffect(() => {
     async function fetchCourse() {
@@ -40,13 +55,6 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     }
     fetchCourse()
   }, [params.slug])
-
-  const walletAddress = publicKey?.toBase58() || null
-  const userId =
-    ((session?.user as any)?.id as string | undefined) ||
-    session?.user?.email ||
-    walletAddress ||
-    null
 
   useEffect(() => {
     if (!course?.id || !userId) {
@@ -169,6 +177,45 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
     }
   }
 
+  const handleFinalizeCourseAndGetCertificate = async () => {
+    if (!course?.id || !userId) {
+      alert('Course or user information missing')
+      return
+    }
+
+    setIsFinalizingCourse(true)
+    try {
+      // Step 1: Finalize the course
+      const result = await finalizeCourse(course.id, userId)
+
+      if (!result.success) {
+        alert(`Failed to finalize course: ${result.error}`)
+        return
+      }
+
+      alert(`🎉 Course finalized! You earned ${result.data?.bonusXp || 0} bonus XP!`)
+
+      // Step 2: Issue the credential
+      setIsIssuingCredential(true)
+      const credResult = await issueCredential(course.id, userId, course.title)
+
+      if (!credResult.success) {
+        console.warn('Credential issuance failed, but course is finalized:', credResult.error)
+      }
+
+      // Redirect to certificates
+      setTimeout(() => {
+        router.push(`/certificates`)
+      }, 1000)
+    } catch (error) {
+      console.error('Error in certificate flow:', error)
+      alert('Failed to process certificate. Please try again.')
+    } finally {
+      setIsFinalizingCourse(false)
+      setIsIssuingCredential(false)
+    }
+  }
+
   if (!course) {
     return <div className="min-h-screen flex items-center justify-center text-gray-400">{t('common.loading')}</div>
   }
@@ -205,19 +252,61 @@ export default function CourseDetailPage({ params }: CourseDetailPageProps) {
 
           <p className="text-gray-300 mb-6">{course.description}</p>
 
-          <Button
-            variant="primary"
-            onClick={handleStartCourse}
-            disabled={enrolling || (isEnrolled && !firstLessonId)}
-          >
-            {!connected
-              ? t('common.connectWallet')
-              : isEnrolled
-                ? t('courseDetail.continueCourse')
-                : enrolling
-                  ? t('courses.enrolling')
-                  : t('courseDetail.startCourse')}
-          </Button>
+          {/* Course Action - Show certificate button if complete */}
+          {completionStatus?.isCourseComplete && completionStatus?.courseFinalized ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 px-4 py-3 bg-neon-green/10 border border-neon-green rounded-lg">
+                <span className="text-2xl">🎓</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-neon-green">Course Completed!</p>
+                  <p className="text-sm text-neon-green/80">
+                    {completionStatus.lessonsCompleted} / {completionStatus.totalLessons} lessons done
+                  </p>
+                </div>
+              </div>
+              <Link href="/certificates" className="block w-full">
+                <Button variant="primary" className="w-full">
+                  📜 View Your Certificate
+                </Button>
+              </Link>
+            </div>
+          ) : completionStatus?.isCourseComplete && !completionStatus?.courseFinalized ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 px-4 py-3 bg-neon-yellow/10 border border-neon-yellow rounded-lg">
+                <span className="text-2xl">⭐</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-neon-yellow">All Lessons Complete!</p>
+                  <p className="text-sm text-neon-yellow/80">Claim your certificate now</p>
+                </div>
+              </div>
+              <Button
+                variant="primary"
+                onClick={handleFinalizeCourseAndGetCertificate}
+                disabled={isFinalizingCourse || isIssuingCredential}
+                className="w-full"
+              >
+                {isFinalizingCourse
+                  ? 'Finalizing Course...'
+                  : isIssuingCredential
+                    ? 'Issuing Certificate...'
+                    : '🎉 Finalize & Claim Certificate'}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={handleStartCourse}
+              disabled={enrolling || (isEnrolled && !firstLessonId)}
+            >
+              {!connected
+                ? t('common.connectWallet')
+                : isEnrolled
+                  ? t('courseDetail.continueCourse')
+                  : enrolling
+                    ? t('courses.enrolling')
+                    : t('courseDetail.startCourse')}
+            </Button>
+          )}
         </div>
 
         {/* Modules */}

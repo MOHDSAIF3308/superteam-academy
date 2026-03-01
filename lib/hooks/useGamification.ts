@@ -26,9 +26,9 @@ export function useGamification(
 
   const fetchStats = useCallback(async (userId: string) => {
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || '/api'
-      const normalizedBase = apiBase.replace(/\/$/, '')
-      const response = await fetch(`${normalizedBase}/gamification/${encodeURIComponent(userId)}`)
+      const response = await fetch(`/api/gamification/${encodeURIComponent(userId)}?t=${Date.now()}`, {
+        cache: 'no-store',
+      })
       if (response.ok) {
         const data = await response.json()
         setStats(data)
@@ -79,7 +79,19 @@ export function useGamification(
       return
     }
 
-    fetchStats(userId)
+    void fetchStats(userId)
+
+    const refresh = () => {
+      void fetchStats(userId)
+    }
+
+    const intervalId = window.setInterval(refresh, 15000)
+    window.addEventListener('focus', refresh)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refresh)
+    }
   }, [(session?.user as any)?.id, session?.user?.email, fetchStats, refreshTrigger, options?.userId])
 
   return { stats, loading, refetch: fetchStats }
