@@ -4,6 +4,8 @@ import './globals.css'
 import { Header, Footer } from '@/components/layout'
 import { ThemeProvider, WalletProvider, AuthProvider, QueryProvider } from '@/components/providers'
 import { I18nProvider } from '@/lib/hooks/useI18n'
+import { AnalyticsProvider } from '@/components/providers/AnalyticsProvider'
+import Script from 'next/script'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const jetbrains = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
@@ -25,19 +27,38 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <Script
+        strategy="afterInteractive"
+        src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID}`}
+      />
+      <Script
+        id="google-analytics"
+        strategy="afterInteractive"
+      >
+        {`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', '${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID}', {
+            page_path: window.location.pathname,
+          });
+        `}
+      </Script>
       <body className={`${inter.variable} ${jetbrains.variable} ${spaceGrotesk.variable} font-sans bg-white dark:bg-terminal-bg text-foreground transition-colors duration-200`}>
         <QueryProvider>
-          <AuthProvider>
-            <WalletProvider>
-              <ThemeProvider>
-                <I18nProvider>
-                  <Header />
-                  <main>{children}</main>
-                  <Footer />
-                </I18nProvider>
-              </ThemeProvider>
-            </WalletProvider>
-          </AuthProvider>
+          <AnalyticsProvider>
+            <AuthProvider>
+              <WalletProvider>
+                <ThemeProvider>
+                  <I18nProvider>
+                    <Header />
+                    <main>{children}</main>
+                    <Footer />
+                  </I18nProvider>
+                </ThemeProvider>
+              </WalletProvider>
+            </AuthProvider>
+          </AnalyticsProvider>
         </QueryProvider>
       </body>
     </html>
