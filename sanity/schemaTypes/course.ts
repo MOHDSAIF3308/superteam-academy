@@ -112,6 +112,7 @@ export const course = defineType({
       name: 'status',
       title: 'Status',
       type: 'string',
+      initialValue: 'draft',
       options: {
         list: [
           {title: 'Draft', value: 'draft'},

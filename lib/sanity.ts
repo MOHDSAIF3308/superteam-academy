@@ -22,29 +22,59 @@ async function sanityFetch<T>(query: string, params?: Record<string, unknown>): 
     throw new Error('Sanity is not configured')
   }
 
-  const response = await fetch(
-    `https://${projectId}.api.sanity.io/v${apiVersion}/data/query/${dataset}`,
-    {
+  // Use server-side API route to avoid CORS issues when called from the browser
+  const isClient = typeof window !== 'undefined'
+
+  if (isClient) {
+    // Client-side: proxy through our API route
+    const response = await fetch('/api/sanity/query', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, params }),
       cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Sanity request failed: ${response.status} ${response.statusText}`)
     }
-  )
 
-  if (!response.ok) {
-    throw new Error(`Sanity request failed: ${response.status} ${response.statusText}`)
+    const payload = await response.json()
+    if (payload?.error) {
+      throw new Error(payload.error.description || payload.error.message || 'Sanity query error')
+    }
+
+    return payload.result as T
+  } else {
+    // Server-side: call Sanity API directly using GET with query params
+    const sanityUrl = new URL(
+      `https://${projectId}.api.sanity.io/v${apiVersion}/data/query/${dataset}`
+    )
+    sanityUrl.searchParams.set('query', query)
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        sanityUrl.searchParams.set(`$${key}`, JSON.stringify(value ?? null))
+      }
+    }
+
+    const response = await fetch(sanityUrl.toString(), {
+      method: 'GET',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Sanity request failed: ${response.status} ${response.statusText}`)
+    }
+
+    const payload = await response.json()
+    if (payload?.error) {
+      throw new Error(payload.error.description || payload.error.message || 'Sanity query error')
+    }
+
+    return payload.result as T
   }
-
-  const payload = await response.json()
-  if (payload?.error) {
-    throw new Error(payload.error.description || payload.error.message || 'Sanity query error')
-  }
-
-  return payload.result as T
 }
 
 // Types for queries
@@ -99,18 +129,18 @@ export async function getCourses(filters?: {
   difficulty?: string
   track?: string
 }): Promise<SanityCourse[]> {
-  const query = `*[_type == "course" && status == "published" && (!defined($difficulty) || difficulty == $difficulty) && (!defined($track) || track == $track)] | order(title asc) {
+  const query = `*[_type == "course" && (!defined($difficulty) || difficulty == $difficulty) && (!defined($track) || track == $track)] | order(title asc) {
     _id, title, slug, description, difficulty, track, duration, xpReward, thumbnail, instructor, tags, status
   }`
 
   return sanityFetch<SanityCourse[]>(query, {
-    difficulty: filters?.difficulty,
-    track: filters?.track,
+    difficulty: filters?.difficulty ?? null,
+    track: filters?.track ?? null,
   })
 }
 
 export async function getCourse(slug: string): Promise<SanityCourse | null> {
-  const query = `*[_type == "course" && slug.current == $slug && status == "published"][0] {
+  const query = `*[_type == "course" && slug.current == $slug][0] {
     _id,
     title,
     slug,
@@ -164,7 +194,7 @@ export async function getLesson(courseSlug: string, lessonId: string): Promise<S
 
 export async function searchCourses(query: string): Promise<SanityCourse[]> {
   const searchTerm = `${query}*`
-  const searchQuery = `*[_type == "course" && status == "published" && (
+  const searchQuery = `*[_type == "course" && (
     title match $search ||
     description match $search ||
     tags[] match $search

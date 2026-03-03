@@ -686,68 +686,59 @@ export class LocalCourseService implements CourseService {
     track?: string
     search?: string
   }): Promise<Course[]> {
-    let courses: Course[] = []
+    let sanityCourses: Course[] = []
+    let mockCourses: Course[] = [...MOCK_COURSES]
 
-    // CMS first: this is the primary runtime source for LMS content
+    // CMS: fetch from Sanity if configured
     if (this.sanityEnabled) {
       try {
-        const sanityCourses = filters?.search
+        const rawSanity = filters?.search
           ? await searchSanityCourses(filters.search)
           : await getSanityCourses({
               difficulty: filters?.difficulty,
               track: filters?.track,
             })
 
-        courses = sanityCourses.map((course) => this.mapSanityCourse(course))
-
-        // Apply optional filters after search query
-        if (filters?.difficulty) {
-          courses = courses.filter((c) => c.difficulty === filters.difficulty)
-        }
-        if (filters?.track) {
-          courses = courses.filter((c) => c.track === filters.track)
-        }
-
-        if (courses.length > 0) {
-          return courses
-        }
+        sanityCourses = rawSanity.map((course) => this.mapSanityCourse(course))
       } catch (error) {
-        console.warn('Failed to fetch CMS courses, falling back to local data:', error)
+        console.warn('Failed to fetch CMS courses:', error)
       }
     }
 
-    // Try to fetch from on-chain, fall back to mock data
+    // Try to enrich mock data with on-chain info
     if (this.onchainService) {
       try {
         const onChainCourses = await this.onchainService.getAllCourses()
-        // Map on-chain courses to full Course objects using mock data as content source
-        courses = onChainCourses
+        const enriched = onChainCourses
           .map((oc: OnChainCourse) => {
             const onChainCourseId = oc.courseId
             const mockCourse = this.findMockCourseByOnChainId(onChainCourseId)
-            // If we have mock course, enrich it with on-chain data
             if (mockCourse) {
               return {
                 ...mockCourse,
                 difficulty: this.difficultyToString(oc.difficulty),
               }
             }
-            // Skip on-chain courses without mock content (they lack lesson details)
             return undefined
           })
           .filter((c): c is Course => c !== undefined)
 
-        if (courses.length === 0) {
-          courses = [...MOCK_COURSES]
+        if (enriched.length > 0) {
+          mockCourses = enriched
         }
       } catch (error) {
         console.warn('Failed to fetch on-chain courses, using mock data:', error)
-        courses = [...MOCK_COURSES]
       }
-    } else {
-      // Server-side or on-chain unavailable: use mock data
-      courses = [...MOCK_COURSES]
     }
+
+    // Merge: Sanity courses + mock courses, deduplicate by slug
+    const seenSlugs = new Set(sanityCourses.map((c) => c.slug))
+    const combined = [
+      ...sanityCourses,
+      ...mockCourses.filter((c) => !seenSlugs.has(c.slug)),
+    ]
+
+    let courses = combined
 
     if (filters?.difficulty) {
       courses = courses.filter((c) => c.difficulty === filters.difficulty)
